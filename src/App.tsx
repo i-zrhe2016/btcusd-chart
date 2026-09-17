@@ -32,6 +32,10 @@ function formatPrice(value: number) {
 }
 
 function formatVolume(value: number) {
+  if (value < 1_000) {
+    return value.toLocaleString("en-US", { maximumFractionDigits: 1 });
+  }
+
   return `${(value / 1_000).toFixed(1)}K`;
 }
 
