@@ -778,7 +778,7 @@ input:focus-visible {
   }
 
   .quote-strip {
-    grid-template-columns: minmax(170px, 1.5fr) repeat(3, minmax(80px, 1fr));
+    grid-template-columns: minmax(0, 1.5fr) repeat(3, minmax(0, 1fr));
   }
 
   .quote-primary,

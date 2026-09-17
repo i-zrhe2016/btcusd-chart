@@ -11,6 +11,7 @@ import type { Candle } from "../../types/market";
 interface PriceChartProps {
   candles: Candle[];
   symbol: string;
+  viewKey: string;
 }
 
 type CandlePoint = {
@@ -48,11 +49,51 @@ const chartColors = {
   down: "#ff8b6f",
 };
 
-export default function PriceChart({ candles, symbol }: PriceChartProps) {
+function toUtcTimestamp(time: number, previousTime: number): UTCTimestamp {
+  if (!Number.isFinite(time) || !Number.isInteger(time) || time <= 0 || time > 10_000_000_000) {
+    throw new Error("Candle timestamps must be Unix seconds");
+  }
+
+  const timestamp = time as UTCTimestamp;
+
+  if (timestamp <= previousTime) {
+    throw new Error("Candle timestamps must be strictly ascending");
+  }
+
+  return timestamp;
+}
+
+function toChartData(candles: Candle[]) {
+  let previousTime = 0;
+  const candleData: CandlePoint[] = [];
+  const volumeData: VolumePoint[] = [];
+
+  candles.forEach((candle) => {
+    const time = toUtcTimestamp(candle.time, previousTime);
+    previousTime = time;
+    candleData.push({
+      time,
+      open: candle.open,
+      high: candle.high,
+      low: candle.low,
+      close: candle.close,
+    });
+    volumeData.push({
+      time,
+      value: candle.volume,
+      color: candle.close >= candle.open ? "#2d8875" : "#9e4e48",
+    });
+  });
+
+  return { candleData, volumeData };
+}
+
+export default function PriceChart({ candles, symbol, viewKey }: PriceChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<ChartViewport | null>(null);
   const candleSeriesRef = useRef<CandleSeries | null>(null);
   const volumeSeriesRef = useRef<VolumeSeries | null>(null);
+  const lastFitKeyRef = useRef<string | null>(null);
   const latestCandle = candles[candles.length - 1];
   const dataSignature = candles
     .map((candle) => [candle.time, candle.open, candle.high, candle.low, candle.close, candle.volume].join(":"))
@@ -139,6 +180,7 @@ export default function PriceChart({ candles, symbol }: PriceChartProps) {
       chartRef.current = null;
       candleSeriesRef.current = null;
       volumeSeriesRef.current = null;
+      lastFitKeyRef.current = null;
     };
   }, []);
 
@@ -150,26 +192,16 @@ export default function PriceChart({ candles, symbol }: PriceChartProps) {
       return;
     }
 
-    candleSeries.setData(
-      candles.map((candle) => ({
-        time: candle.time as UTCTimestamp,
-        open: candle.open,
-        high: candle.high,
-        low: candle.low,
-        close: candle.close,
-      })),
-    );
+    const { candleData, volumeData } = toChartData(candles);
 
-    volumeSeries.setData(
-      candles.map((candle) => ({
-        time: candle.time as UTCTimestamp,
-        value: candle.volume,
-        color: candle.close >= candle.open ? "#2d8875" : "#9e4e48",
-      })),
-    );
+    candleSeries.setData(candleData);
+    volumeSeries.setData(volumeData);
 
-    chartRef.current?.timeScale().fitContent();
-  }, [candles, dataSignature]);
+    if (lastFitKeyRef.current !== viewKey) {
+      chartRef.current?.timeScale().fitContent();
+      lastFitKeyRef.current = viewKey;
+    }
+  }, [dataSignature, viewKey]);
 
   const chartSummary = latestCandle
     ? `${symbol} candlestick chart with ${candles.length} candles. Latest close ${latestCandle.close.toFixed(2)}.`

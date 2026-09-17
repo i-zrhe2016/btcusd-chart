@@ -77,7 +77,9 @@ describe("App", () => {
   });
 
   it("cleans up the chart instance on unmount", () => {
-    const { unmount } = render(<PriceChart candles={createFixtureCandles("15m")} symbol="BTCUSD" />);
+    const { unmount } = render(
+      <PriceChart candles={createFixtureCandles("15m")} symbol="BTCUSD" viewKey="BTCUSD:15m" />,
+    );
 
     expect(chartMocks.createChart).toHaveBeenCalledTimes(1);
     expect(chartMocks.applyOptions).toHaveBeenCalledWith({

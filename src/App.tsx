@@ -313,7 +313,7 @@ export default function App() {
               </div>
             </div>
             <div className="chart-stage">
-              <PriceChart candles={candles} symbol={symbol} />
+              <PriceChart candles={candles} symbol={symbol} viewKey={`${symbol}:${interval}`} />
             </div>
             <div className="chart-legend">
               <span><i className="legend-swatch up" /> Up candle</span>
