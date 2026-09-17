@@ -54,10 +54,10 @@ export function createFixtureCandles(interval: Interval, symbol = "BTCUSD"): Can
 
     return {
       time: start + index * step,
-      open: open + wave + drift,
-      high: high + wave + drift,
-      low: low + wave + drift,
-      close: close + wave + drift,
+      open,
+      high,
+      low,
+      close,
       volume,
     };
   });

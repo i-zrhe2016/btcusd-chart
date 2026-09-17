@@ -84,7 +84,7 @@ export default function App() {
           </div>
           <div>
             <div className="brand-name">Market Lab</div>
-            <div className="brand-subtitle">BTCUSD workspace</div>
+            <div className="brand-subtitle">{symbol} workspace</div>
           </div>
         </div>
 
@@ -194,18 +194,30 @@ export default function App() {
           </div>
 
           <div className="interval-row">
-            <div className="interval-tabs" role="group" aria-label="Chart interval">
-              {INTERVALS.map((option) => (
-                <button
-                  className={`interval-tab ${option === interval ? "active" : ""}`}
-                  type="button"
-                  aria-pressed={option === interval}
-                  key={option}
-                  onClick={() => setInterval(option)}
-                >
-                  {option}
-                </button>
-              ))}
+            <div className="interval-controls">
+              <div className="interval-tabs" role="group" aria-label="Chart interval">
+                {INTERVALS.map((option) => (
+                  <button
+                    className={`interval-tab ${option === interval ? "active" : ""}`}
+                    type="button"
+                    aria-pressed={option === interval}
+                    key={option}
+                    onClick={() => setInterval(option)}
+                  >
+                    {option}
+                  </button>
+                ))}
+              </div>
+              <label className="mobile-symbol-select">
+                <span className="sr-only">Select market</span>
+                <select value={symbol} aria-label="Select market" onChange={(event) => setSymbol(event.target.value)}>
+                  {watchlist.map((item) => (
+                    <option value={item.symbol} key={item.symbol}>
+                      {item.symbol}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
             <div className="chart-mode">
               <span className="mode-indicator" />

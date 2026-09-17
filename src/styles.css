@@ -492,6 +492,13 @@ input:focus-visible {
   border-bottom: 1px solid var(--line);
 }
 
+.interval-controls {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+
 .interval-tabs {
   display: flex;
   gap: 3px;
@@ -501,6 +508,34 @@ input:focus-visible {
 
 .interval-tabs::-webkit-scrollbar {
   display: none;
+}
+
+.mobile-symbol-select {
+  display: none;
+}
+
+.mobile-symbol-select select {
+  height: 27px;
+  min-width: 82px;
+  padding: 0 6px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  color: var(--muted);
+  background: var(--surface);
+  font-family: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 10px;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .interval-tab {
@@ -801,6 +836,19 @@ input:focus-visible {
   .interval-row {
     align-items: flex-start;
     gap: 8px;
+  }
+
+  .interval-controls {
+    width: 100%;
+  }
+
+  .interval-tabs {
+    flex: 1;
+  }
+
+  .mobile-symbol-select {
+    display: block;
+    flex: 0 0 auto;
   }
 
   .chart-mode {
