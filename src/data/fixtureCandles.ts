@@ -1,4 +1,4 @@
-import type { Candle, Interval } from "../types/market";
+import type { Candle, Interval, Symbol } from "../types/market";
 
 const intervalSeconds: Record<Interval, number> = {
   "1m": 60,
@@ -25,17 +25,17 @@ interface FixtureProfile {
   seed: number;
 }
 
-const symbolProfiles: Record<string, FixtureProfile> = {
+const symbolProfiles: Record<Symbol, FixtureProfile> = {
   BTCUSD: { base: 62_480, scale: 1, drift: 11.5, seed: 0 },
   ETHUSD: { base: 3_110, scale: 0.055, drift: 0.65, seed: 7 },
   SOLUSD: { base: 142, scale: 0.003, drift: 0.035, seed: 13 },
   BNBUSD: { base: 540, scale: 0.009, drift: 0.09, seed: 19 },
 };
 
-export function createFixtureCandles(interval: Interval, symbol = "BTCUSD"): Candle[] {
+export function createFixtureCandles(interval: Interval, symbol: Symbol = "BTCUSD"): Candle[] {
   const step = intervalSeconds[interval];
   const intervalSeed = intervalSeeds[interval];
-  const profile = symbolProfiles[symbol] ?? symbolProfiles.BTCUSD;
+  const profile = symbolProfiles[symbol];
   const seed = intervalSeed + profile.seed;
   const start = Math.floor(Date.UTC(2024, 4, 6, 12, 0, 0) / 1_000);
   let previousClose = profile.base + intervalSeed * 17 * profile.scale;

@@ -15,13 +15,13 @@ import { useMemo, useState } from "react";
 import PriceChart from "./components/chart/PriceChart";
 import { createFixtureCandles } from "./data/fixtureCandles";
 import { useChartStore } from "./stores/chartStore";
-import { INTERVALS, type WatchlistItem } from "./types/market";
+import { INTERVALS, SYMBOLS, type WatchlistItem, type WatchlistQuote } from "./types/market";
 
 const watchlist: WatchlistItem[] = [
-  { symbol: "BTCUSD", venue: "Binance spot", price: "68,412.80", change: "+2.84%", tone: "up" },
-  { symbol: "ETHUSD", venue: "Watch only", price: "3,418.20", change: "+1.26%", tone: "up" },
-  { symbol: "SOLUSD", venue: "Watch only", price: "164.73", change: "-0.42%", tone: "down" },
-  { symbol: "BNBUSD", venue: "Watch only", price: "592.11", change: "+0.18%", tone: "muted" },
+  { symbol: "BTCUSD", venue: "Binance spot" },
+  { symbol: "ETHUSD", venue: "Watch only" },
+  { symbol: "SOLUSD", venue: "Watch only" },
+  { symbol: "BNBUSD", venue: "Watch only" },
 ];
 
 function formatPrice(value: number) {
@@ -48,15 +48,28 @@ export default function App() {
   const [watchlistQuery, setWatchlistQuery] = useState("");
   const selectedMarket = watchlist.find((item) => item.symbol === symbol) ?? watchlist[0];
   const candles = useMemo(() => createFixtureCandles(interval, symbol), [interval, symbol]);
+  const watchlistQuotes = useMemo<WatchlistQuote[]>(() => watchlist.map((item) => {
+    const itemCandles = item.symbol === symbol ? candles : createFixtureCandles(interval, item.symbol);
+    const first = itemCandles[0];
+    const last = itemCandles[itemCandles.length - 1];
+    const changePercent = ((last.close - first.open) / first.open) * 100;
+
+    return {
+      ...item,
+      price: formatPrice(last.close),
+      change: formatSigned(changePercent, "%"),
+      tone: changePercent >= 0 ? "up" : "down",
+    };
+  }), [candles, interval, symbol]);
   const visibleWatchlist = useMemo(() => {
     const query = watchlistQuery.trim().toUpperCase();
 
     if (!query) {
-      return watchlist;
+      return watchlistQuotes;
     }
 
-    return watchlist.filter((item) => item.symbol.includes(query));
-  }, [watchlistQuery]);
+    return watchlistQuotes.filter((item) => item.symbol.includes(query));
+  }, [watchlistQuery, watchlistQuotes]);
   const stats = useMemo(() => {
     const first = candles[0];
     const last = candles[candles.length - 1];
@@ -210,7 +223,17 @@ export default function App() {
               </div>
               <label className="mobile-symbol-select">
                 <span className="sr-only">Select market</span>
-                <select value={symbol} aria-label="Select market" onChange={(event) => setSymbol(event.target.value)}>
+                <select
+                  value={symbol}
+                  aria-label="Select market"
+                  onChange={(event) => {
+                    const nextSymbol = SYMBOLS.find((option) => option === event.target.value);
+
+                    if (nextSymbol) {
+                      setSymbol(nextSymbol);
+                    }
+                  }}
+                >
                   {watchlist.map((item) => (
                     <option value={item.symbol} key={item.symbol}>
                       {item.symbol}

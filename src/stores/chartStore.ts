@@ -1,10 +1,10 @@
 import { create } from "zustand";
-import type { Interval } from "../types/market";
+import type { Interval, Symbol } from "../types/market";
 
 interface ChartState {
-  symbol: string;
+  symbol: Symbol;
   interval: Interval;
-  setSymbol: (symbol: string) => void;
+  setSymbol: (symbol: Symbol) => void;
   setInterval: (interval: Interval) => void;
 }
 
