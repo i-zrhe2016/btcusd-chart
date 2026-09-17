@@ -65,6 +65,17 @@ describe("App", () => {
     expect(document.title).toBe("ETHUSD Chart");
   });
 
+  it("does not intercept the search shortcut when the watchlist is hidden", () => {
+    render(<App />);
+    document.querySelector<HTMLElement>(".watchlist-panel")?.style.setProperty("display", "none");
+
+    const event = new KeyboardEvent("keydown", { key: "/", cancelable: true });
+    window.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(false);
+    expect(document.activeElement).not.toBe(document.getElementById("watchlist-search"));
+  });
+
   it("formats a negative summary change with the down tone", () => {
     useChartStore.setState({ symbol: "SOLUSD", interval: "15m" });
     render(<App />);

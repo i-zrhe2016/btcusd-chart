@@ -110,6 +110,12 @@ export default function App() {
         return;
       }
 
+      const watchlistPanel = document.querySelector<HTMLElement>(".watchlist-panel");
+
+      if (!watchlistPanel || getComputedStyle(watchlistPanel).display === "none") {
+        return;
+      }
+
       event.preventDefault();
       document.getElementById("watchlist-search")?.focus();
     };
