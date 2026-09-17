@@ -24,3 +24,9 @@ npm run build
 
 The development server binds to `127.0.0.1` by default. Set `VITE_DEV_HOST`
 when the browser needs to reach the server from another host or container.
+
+## Deployment
+
+Docker Compose support is documented in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+The default Compose target builds the app and serves it through Nginx at
+`http://127.0.0.1:8080/` with a container health check at `/health`.

@@ -1,0 +1,12 @@
+node_modules
+dist
+coverage
+.git
+.playwright-cli
+.agents
+.codex
+*.log
+.env
+.env.*
+!.env.example
+.npmrc
