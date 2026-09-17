@@ -3,9 +3,14 @@
 Browser-only TradingView-like BTCUSD charting workspace.
 
 The MVP uses Vite, React, TypeScript, Lightweight Charts 5.2, Zustand, and
-Binance public market data. A browser-side MarketDataHub will share history and
-WebSocket subscriptions across chart panels; workspace configuration and a
-bounded candle cache will use browser storage.
+Binance public spot market data. A browser-side MarketDataHub shares history and
+WebSocket subscriptions for identical markets within one tab. The chart keeps
+loading, disconnected, stale, and error states visible and does not fall back to
+local fixture data after live mode is enabled.
+
+The current market mapping includes `BTCUSD -> BTCUSDT`, `ETHUSD -> ETHUSDT`,
+`SOLUSD -> SOLUSDT`, and `BNBUSD -> BNBUSDT`. Public history uses Binance's
+market-data REST endpoint and realtime candles use the public kline stream.
 
 ## Development
 
