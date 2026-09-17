@@ -34,10 +34,12 @@ type ChartViewport = {
 
 type CandleSeries = {
   setData: (data: CandlePoint[]) => void;
+  update: (data: CandlePoint) => void;
 };
 
 type VolumeSeries = {
   setData: (data: VolumePoint[]) => void;
+  update: (data: VolumePoint) => void;
 };
 
 const chartColors = {
@@ -88,12 +90,52 @@ function toChartData(candles: Candle[]) {
   return { candleData, volumeData };
 }
 
+function pointsMatch(left: CandlePoint | VolumePoint, right: CandlePoint | VolumePoint) {
+  if (left.time !== right.time) {
+    return false;
+  }
+
+  if ("value" in left && "value" in right) {
+    return left.value === right.value && left.color === right.color;
+  }
+
+  if ("value" in left || "value" in right) {
+    return false;
+  }
+
+  return left.open === right.open
+    && left.high === right.high
+    && left.low === right.low
+    && left.close === right.close;
+}
+
+function supportsIncrementalUpdate<T extends CandlePoint | VolumePoint>(previous: T[], next: T[]) {
+  if (previous.length === 0 || next.length === 0 || next.length < previous.length || next.length > previous.length + 1) {
+    return false;
+  }
+
+  const unchangedPrefixLength = Math.max(0, previous.length - 1);
+
+  for (let index = 0; index < unchangedPrefixLength; index += 1) {
+    if (!pointsMatch(previous[index], next[index])) {
+      return false;
+    }
+  }
+
+  if (next.length === previous.length) {
+    return previous[previous.length - 1].time === next[next.length - 1].time;
+  }
+
+  return next[next.length - 1].time > previous[previous.length - 1].time;
+}
+
 export default function PriceChart({ candles, symbol, viewKey }: PriceChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<ChartViewport | null>(null);
   const candleSeriesRef = useRef<CandleSeries | null>(null);
   const volumeSeriesRef = useRef<VolumeSeries | null>(null);
   const lastFitKeyRef = useRef<string | null>(null);
+  const previousDataRef = useRef<{ viewKey: string; candleData: CandlePoint[]; volumeData: VolumePoint[] } | null>(null);
   const latestCandle = candles[candles.length - 1];
   const dataSignature = candles
     .map((candle) => [candle.time, candle.open, candle.high, candle.low, candle.close, candle.volume].join(":"))
@@ -181,6 +223,7 @@ export default function PriceChart({ candles, symbol, viewKey }: PriceChartProps
       candleSeriesRef.current = null;
       volumeSeriesRef.current = null;
       lastFitKeyRef.current = null;
+      previousDataRef.current = null;
     };
   }, []);
 
@@ -193,11 +236,22 @@ export default function PriceChart({ candles, symbol, viewKey }: PriceChartProps
     }
 
     const { candleData, volumeData } = toChartData(candles);
+    const previousData = previousDataRef.current;
+    const canUpdateIncrementally = previousData?.viewKey === viewKey
+      && supportsIncrementalUpdate(previousData.candleData, candleData)
+      && supportsIncrementalUpdate(previousData.volumeData, volumeData);
 
-    candleSeries.setData(candleData);
-    volumeSeries.setData(volumeData);
+    if (canUpdateIncrementally) {
+      candleSeries.update(candleData[candleData.length - 1]);
+      volumeSeries.update(volumeData[volumeData.length - 1]);
+    } else {
+      candleSeries.setData(candleData);
+      volumeSeries.setData(volumeData);
+    }
 
-    if (lastFitKeyRef.current !== viewKey) {
+    previousDataRef.current = { viewKey, candleData, volumeData };
+
+    if (!canUpdateIncrementally && lastFitKeyRef.current !== viewKey) {
       chartRef.current?.timeScale().fitContent();
       lastFitKeyRef.current = viewKey;
     }

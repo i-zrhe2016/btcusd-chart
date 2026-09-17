@@ -4,24 +4,29 @@ import {
   Bell,
   ChevronDown,
   Clock3,
+  LoaderCircle,
   Menu,
   Plus,
   Radio,
+  RefreshCw,
   Search,
   Settings2,
   Star,
+  WifiOff,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import PriceChart from "./components/chart/PriceChart";
-import { createFixtureCandles } from "./data/fixtureCandles";
+import { useMarketData } from "./market-data/useMarketData";
+import { toBinanceSymbol } from "./market-data/binanceAdapter";
 import { useChartStore } from "./stores/chartStore";
 import { INTERVALS, SYMBOLS, type WatchlistItem, type WatchlistQuote } from "./types/market";
+import type { MarketDataErrorInfo, MarketDataStatus } from "./market-data/types";
 
 const watchlist: WatchlistItem[] = [
   { symbol: "BTCUSD", venue: "Binance spot" },
-  { symbol: "ETHUSD", venue: "Watch only" },
-  { symbol: "SOLUSD", venue: "Watch only" },
-  { symbol: "BNBUSD", venue: "Watch only" },
+  { symbol: "ETHUSD", venue: "Binance spot" },
+  { symbol: "SOLUSD", venue: "Binance spot" },
+  { symbol: "BNBUSD", venue: "Binance spot" },
 ];
 
 function formatPrice(value: number) {
@@ -32,6 +37,14 @@ function formatPrice(value: number) {
 }
 
 function formatVolume(value: number) {
+  if (value >= 1_000_000_000) {
+    return `${(value / 1_000_000_000).toFixed(1)}B`;
+  }
+
+  if (value >= 1_000_000) {
+    return `${(value / 1_000_000).toFixed(1)}M`;
+  }
+
   if (value < 1_000) {
     return value.toLocaleString("en-US", { maximumFractionDigits: 1 });
   }
@@ -44,27 +57,85 @@ function formatSigned(value: number, suffix = "") {
   return `${sign}${formatPrice(Math.abs(value))}${suffix}`;
 }
 
+function statusLabel(status: MarketDataStatus) {
+  switch (status) {
+    case "loading":
+      return "Loading history";
+    case "connecting":
+      return "Connecting";
+    case "live":
+      return "Live feed";
+    case "stale":
+      return "Stale feed";
+    case "disconnected":
+      return "Disconnected";
+    case "reconnecting":
+      return "Reconnecting";
+    case "error":
+      return "Data error";
+    default:
+      return "Idle";
+  }
+}
+
+function statusMessage(status: MarketDataStatus, error: MarketDataErrorInfo | null) {
+  if (error) {
+    return error.message;
+  }
+
+  switch (status) {
+    case "loading":
+      return "Loading Binance historical candles...";
+    case "connecting":
+      return "History loaded; opening the Binance live stream...";
+    case "live":
+      return "Binance WebSocket updates are active.";
+    case "stale":
+      return "No Binance kline update has arrived recently.";
+    case "disconnected":
+      return "The Binance WebSocket is disconnected.";
+    case "reconnecting":
+      return "Retrying the Binance WebSocket connection...";
+    case "error":
+      return "Binance market data is unavailable.";
+    default:
+      return "Waiting for Binance market data.";
+  }
+}
+
 export default function App() {
   const symbol = useChartStore((state) => state.symbol);
   const interval = useChartStore((state) => state.interval);
   const setSymbol = useChartStore((state) => state.setSymbol);
   const setInterval = useChartStore((state) => state.setInterval);
   const [watchlistQuery, setWatchlistQuery] = useState("");
-  const selectedMarket = watchlist.find((item) => item.symbol === symbol) ?? watchlist[0];
-  const candles = useMemo(() => createFixtureCandles(interval, symbol), [interval, symbol]);
+  const market = useMarketData({ symbol, interval });
+  const candles = market.candles;
   const watchlistQuotes = useMemo<WatchlistQuote[]>(() => watchlist.map((item) => {
-    const itemCandles = item.symbol === symbol ? candles : createFixtureCandles(interval, item.symbol);
+    const itemCandles = item.symbol === symbol ? candles : [];
     const first = itemCandles[0];
     const last = itemCandles[itemCandles.length - 1];
+
+    if (!first || !last) {
+      return {
+        ...item,
+        venue: item.symbol === symbol ? statusLabel(market.status) : "Not loaded",
+        price: "--",
+        change: "--",
+        tone: "muted",
+      };
+    }
+
     const changePercent = ((last.close - first.open) / first.open) * 100;
 
     return {
       ...item,
+      venue: "Binance spot",
       price: formatPrice(last.close),
       change: formatSigned(changePercent, "%"),
       tone: changePercent >= 0 ? "up" : "down",
     };
-  }), [candles, interval, symbol]);
+  }), [candles, market.status, symbol]);
   const visibleWatchlist = useMemo(() => {
     const query = watchlistQuery.trim().toUpperCase();
 
@@ -75,6 +146,10 @@ export default function App() {
     return watchlistQuotes.filter((item) => item.symbol.includes(query));
   }, [watchlistQuery, watchlistQuotes]);
   const stats = useMemo(() => {
+    if (candles.length === 0) {
+      return null;
+    }
+
     const first = candles[0];
     const last = candles[candles.length - 1];
     const high = Math.max(...candles.map((candle) => candle.high));
@@ -91,6 +166,9 @@ export default function App() {
       changePercent,
     };
   }, [candles]);
+  const currentStatusLabel = statusLabel(market.status);
+  const currentStatusMessage = statusMessage(market.status, market.error);
+  const showChartMessage = !stats || market.status === "error";
 
   useEffect(() => {
     document.title = `${symbol} Chart`;
@@ -141,20 +219,20 @@ export default function App() {
         <div className="topbar-tape" aria-label="Market snapshot">
           <span className="tape-label">MARKET STATUS</span>
           <span className="status-dot" aria-hidden="true" />
-          <span className="tape-value">Preview feed</span>
+          <span className="tape-value">{currentStatusLabel}</span>
           <span className="tape-separator" aria-hidden="true" />
           <span className="tape-label">SESSION</span>
           <span className="tape-value">UTC / 24H</span>
         </div>
 
         <div className="topbar-actions">
-          <button className="icon-button" type="button" title="Unavailable in preview" aria-label="Search markets" disabled>
+          <button className="icon-button" type="button" title="Not available yet" aria-label="Search markets" disabled>
             <Search size={17} />
           </button>
-          <button className="icon-button" type="button" title="Unavailable in preview" aria-label="Notifications" disabled>
+          <button className="icon-button" type="button" title="Not available yet" aria-label="Notifications" disabled>
             <Bell size={17} />
           </button>
-          <button className="profile-button" type="button" title="Unavailable in preview" aria-label="Open profile menu" disabled>
+          <button className="profile-button" type="button" title="Not available yet" aria-label="Open profile menu" disabled>
             <span className="profile-avatar">ML</span>
             <ChevronDown size={14} />
           </button>
@@ -168,7 +246,7 @@ export default function App() {
               <span className="eyebrow">Markets</span>
               <h2>Watchlist</h2>
             </div>
-            <button className="icon-button subtle" type="button" title="Unavailable in preview" aria-label="Add market" disabled>
+            <button className="icon-button subtle" type="button" title="Not available yet" aria-label="Add market" disabled>
               <Plus size={16} />
             </button>
           </div>
@@ -201,7 +279,7 @@ export default function App() {
                   <Star size={13} fill={item.symbol === symbol ? "currentColor" : "none"} />
                   <div>
                     <strong>{item.symbol}</strong>
-                    <span>{item.venue}</span>
+                    <span>{item.symbol === symbol ? item.venue : "Not loaded"}</span>
                   </div>
                 </div>
                 <div className="watchlist-quote">
@@ -214,7 +292,7 @@ export default function App() {
           </div>
           <div className="watchlist-footer">
             <Radio size={14} />
-            <span>Local preview symbols</span>
+            <span>Binance public market data</span>
           </div>
         </aside>
 
@@ -225,19 +303,19 @@ export default function App() {
                 <BarChart3 size={18} aria-hidden="true" />
                 <h1>{symbol}</h1>
                 <span className="instrument-badge">
-                  {selectedMarket.venue === "Binance spot" ? "Spot" : "Preview"}
+                  Spot
                 </span>
               </div>
               <span className="instrument-source">
-                {selectedMarket.venue === "Binance spot" ? "Binance symbol mapping / local preview" : "Local fixture / watchlist preview"}
+                Binance spot / {toBinanceSymbol(symbol)} public market data
               </span>
             </div>
             <div className="toolbar-actions">
-              <button className="tool-button" type="button" title="Unavailable in preview" aria-label="Chart settings" disabled>
+              <button className="tool-button" type="button" title="Not available yet" aria-label="Chart settings" disabled>
                 <Settings2 size={15} />
                 <span>Chart</span>
               </button>
-              <button className="icon-button subtle" type="button" title="Unavailable in preview" aria-label="More chart actions" disabled>
+              <button className="icon-button subtle" type="button" title="Not available yet" aria-label="More chart actions" disabled>
                 <Menu size={17} />
               </button>
             </div>
@@ -289,22 +367,22 @@ export default function App() {
           <section className="quote-strip" aria-label={`${symbol} quote summary`}>
             <div className="quote-primary">
               <span className="quote-label">Last price</span>
-              <strong>{formatPrice(stats.last)}</strong>
-              <span className={stats.change >= 0 ? "quote-up" : "quote-down"}>
-                {formatSigned(stats.change)} / {formatSigned(stats.changePercent, "%")}
+              <strong>{stats ? formatPrice(stats.last) : "--"}</strong>
+              <span className={stats ? (stats.change >= 0 ? "quote-up" : "quote-down") : "quote-muted"}>
+                {stats ? `${formatSigned(stats.change)} / ${formatSigned(stats.changePercent, "%")}` : currentStatusLabel}
               </span>
             </div>
             <div className="quote-stat">
               <span>Session high</span>
-              <strong>{formatPrice(stats.high)}</strong>
+              <strong>{stats ? formatPrice(stats.high) : "--"}</strong>
             </div>
             <div className="quote-stat">
               <span>Session low</span>
-              <strong>{formatPrice(stats.low)}</strong>
+              <strong>{stats ? formatPrice(stats.low) : "--"}</strong>
             </div>
             <div className="quote-stat">
               <span>Volume</span>
-              <strong>{formatVolume(stats.volume)}</strong>
+              <strong>{stats ? formatVolume(stats.volume) : "--"}</strong>
             </div>
           </section>
 
@@ -315,18 +393,36 @@ export default function App() {
                 <span className="chart-interval">{interval} candles</span>
               </div>
               <div className="chart-header-tools">
-                <span className="chart-state"><Clock3 size={13} /> Historical preview</span>
+                <span className={`chart-state status-${market.status}`} aria-live="polite">
+                  {market.status === "live" ? <Radio size={13} /> : <Clock3 size={13} />}
+                  {currentStatusLabel}
+                </span>
               </div>
             </div>
             <div className="chart-stage">
               <PriceChart candles={candles} symbol={symbol} viewKey={`${symbol}:${interval}`} />
+              {showChartMessage && (
+                <div className={`chart-message status-${market.status}`} role={market.status === "error" ? "alert" : "status"} aria-live="polite">
+                  <div className="chart-message-icon">
+                    {market.status === "error" ? <WifiOff size={18} /> : <LoaderCircle className="loading-icon" size={18} />}
+                  </div>
+                  <strong>{currentStatusLabel}</strong>
+                  <span>{currentStatusMessage}</span>
+                  {market.status === "error" && (
+                    <button className="retry-button" type="button" onClick={market.retry}>
+                      <RefreshCw size={14} />
+                      Retry connection
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
             <div className="chart-legend">
               <span><i className="legend-swatch up" /> Up candle</span>
               <span><i className="legend-swatch down" /> Down candle</span>
               <span><i className="legend-swatch volume" /> Volume</span>
               <span className="legend-spacer" />
-              <span>Data source: Fixture</span>
+              <span>Data source: Binance {toBinanceSymbol(symbol)}</span>
             </div>
           </section>
         </main>
@@ -334,8 +430,8 @@ export default function App() {
 
       <footer className="statusbar">
         <div className="statusbar-left">
-          <span className="status-live"><span className="status-dot" /> Preview mode</span>
-          <span>Updates paused until Binance connection is enabled</span>
+          <span className={`status-live status-${market.status}`}><span className="status-dot" /> {currentStatusLabel}</span>
+          <span>{currentStatusMessage}</span>
         </div>
         <div className="statusbar-right">
           <span>v0.1.0</span>
