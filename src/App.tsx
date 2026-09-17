@@ -310,9 +310,6 @@ export default function App() {
               </div>
               <div className="chart-header-tools">
                 <span className="chart-state"><Clock3 size={13} /> Historical preview</span>
-                <button className="icon-button chart-icon" type="button" title="Unavailable in preview" aria-label="Expand chart" disabled>
-                  <Menu size={16} />
-                </button>
               </div>
             </div>
             <div className="chart-stage">

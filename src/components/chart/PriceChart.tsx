@@ -13,6 +13,32 @@ interface PriceChartProps {
   symbol: string;
 }
 
+type CandlePoint = {
+  time: UTCTimestamp;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+};
+
+type VolumePoint = {
+  time: UTCTimestamp;
+  value: number;
+  color: string;
+};
+
+type ChartViewport = {
+  timeScale: () => { fitContent: () => void };
+};
+
+type CandleSeries = {
+  setData: (data: CandlePoint[]) => void;
+};
+
+type VolumeSeries = {
+  setData: (data: VolumePoint[]) => void;
+};
+
 const chartColors = {
   background: "#101a20",
   text: "#91a4aa",
@@ -24,7 +50,13 @@ const chartColors = {
 
 export default function PriceChart({ candles, symbol }: PriceChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const chartRef = useRef<ChartViewport | null>(null);
+  const candleSeriesRef = useRef<CandleSeries | null>(null);
+  const volumeSeriesRef = useRef<VolumeSeries | null>(null);
   const latestCandle = candles[candles.length - 1];
+  const dataSignature = candles
+    .map((candle) => [candle.time, candle.open, candle.high, candle.low, candle.close, candle.volume].join(":"))
+    .join("|");
 
   useEffect(() => {
     const container = containerRef.current;
@@ -80,6 +112,44 @@ export default function PriceChart({ candles, symbol }: PriceChartProps) {
       scaleMargins: { top: 0.82, bottom: 0 },
     });
 
+    chartRef.current = chart;
+    candleSeriesRef.current = candleSeries as CandleSeries;
+    volumeSeriesRef.current = volumeSeries as VolumeSeries;
+
+    const resizeChart = () => {
+      chart.applyOptions({
+        width: container.clientWidth,
+        height: container.clientHeight,
+      });
+    };
+
+    const resizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(resizeChart);
+
+    if (resizeObserver) {
+      resizeObserver.observe(container);
+    } else {
+      window.addEventListener("resize", resizeChart);
+      resizeChart();
+    }
+
+    return () => {
+      resizeObserver?.disconnect();
+      window.removeEventListener("resize", resizeChart);
+      chart.remove();
+      chartRef.current = null;
+      candleSeriesRef.current = null;
+      volumeSeriesRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    const candleSeries = candleSeriesRef.current;
+    const volumeSeries = volumeSeriesRef.current;
+
+    if (!candleSeries || !volumeSeries) {
+      return;
+    }
+
     candleSeries.setData(
       candles.map((candle) => ({
         time: candle.time as UTCTimestamp,
@@ -98,22 +168,8 @@ export default function PriceChart({ candles, symbol }: PriceChartProps) {
       })),
     );
 
-    chart.timeScale().fitContent();
-
-    const resizeObserver = new ResizeObserver(() => {
-      chart.applyOptions({
-        width: container.clientWidth,
-        height: container.clientHeight,
-      });
-    });
-
-    resizeObserver.observe(container);
-
-    return () => {
-      resizeObserver.disconnect();
-      chart.remove();
-    };
-  }, [candles]);
+    chartRef.current?.timeScale().fitContent();
+  }, [candles, dataSignature]);
 
   const chartSummary = latestCandle
     ? `${symbol} candlestick chart with ${candles.length} candles. Latest close ${latestCandle.close.toFixed(2)}.`
