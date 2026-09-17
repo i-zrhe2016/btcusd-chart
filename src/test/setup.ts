@@ -2,7 +2,11 @@ import { cleanup } from "@testing-library/react";
 import { afterEach, vi } from "vitest";
 
 class ResizeObserverStub {
-  observe() {}
+  constructor(private readonly callback: ResizeObserverCallback) {}
+
+  observe(target: Element) {
+    this.callback([{ target } as ResizeObserverEntry], this);
+  }
 
   disconnect() {}
 

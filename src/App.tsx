@@ -11,7 +11,7 @@ import {
   Settings2,
   Star,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import PriceChart from "./components/chart/PriceChart";
 import { createFixtureCandles } from "./data/fixtureCandles";
 import { useChartStore } from "./stores/chartStore";
@@ -91,6 +91,33 @@ export default function App() {
       changePercent,
     };
   }, [candles]);
+
+  useEffect(() => {
+    document.title = `${symbol} Chart`;
+  }, [symbol]);
+
+  useEffect(() => {
+    const focusSearch = (event: KeyboardEvent) => {
+      const target = event.target;
+
+      if (
+        event.key !== "/" ||
+        event.ctrlKey ||
+        event.metaKey ||
+        event.altKey ||
+        (target instanceof HTMLElement && target.matches("input, textarea, select, [contenteditable=\"true\"]"))
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      document.getElementById("watchlist-search")?.focus();
+    };
+
+    window.addEventListener("keydown", focusSearch);
+
+    return () => window.removeEventListener("keydown", focusSearch);
+  }, []);
 
   return (
     <div className="app-shell">

@@ -28,7 +28,7 @@ interface FixtureProfile {
 const symbolProfiles: Record<Symbol, FixtureProfile> = {
   BTCUSD: { base: 62_480, scale: 1, drift: 11.5, seed: 0 },
   ETHUSD: { base: 3_110, scale: 0.055, drift: 0.65, seed: 7 },
-  SOLUSD: { base: 142, scale: 0.003, drift: 0.035, seed: 13 },
+  SOLUSD: { base: 142, scale: 0.003, drift: -0.025, seed: 13 },
   BNBUSD: { base: 540, scale: 0.009, drift: 0.09, seed: 19 },
 };
 

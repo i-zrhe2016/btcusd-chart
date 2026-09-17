@@ -39,7 +39,7 @@ export default function PriceChart({ candles, symbol }: PriceChartProps) {
       layout: {
         background: { type: ColorType.Solid, color: chartColors.background },
         textColor: chartColors.text,
-        attributionLogo: false,
+        attributionLogo: true,
       },
       grid: {
         vertLines: { color: chartColors.grid },
