@@ -108,6 +108,34 @@ describe("MarketDataHub", () => {
     unsubscribe();
   });
 
+  it("buffers live updates while the history request is pending", async () => {
+    let resolveHistory: (candles: Candle[]) => void = () => undefined;
+    const fetchCandles = vi.fn(() => new Promise<Candle[]>((resolve) => {
+      resolveHistory = resolve;
+    }));
+    const socket = createSocket();
+    const hub = new MarketDataHub({
+      restClient: { fetchCandles },
+      socketFactory: vi.fn(() => socket),
+    });
+
+    const unsubscribe = hub.subscribe(request, vi.fn());
+    expect(fetchCandles).toHaveBeenCalledTimes(1);
+    expect(socket.onopen).not.toBeNull();
+
+    socket.onopen?.(new Event("open"));
+    socket.onmessage?.({ data: klineMessage("104") } as MessageEvent);
+    expect(hub.getSnapshot(request).candles).toHaveLength(0);
+
+    resolveHistory(history);
+    await flushHistory();
+
+    expect(hub.getSnapshot(request)).toMatchObject({ status: "live" });
+    expect(hub.getSnapshot(request).candles).toHaveLength(2);
+    expect(hub.getSnapshot(request).candles.at(-1)).toMatchObject({ close: 104, volume: 15 });
+    unsubscribe();
+  });
+
   it("exposes disconnected state and reconnects after a socket close", async () => {
     const firstSocket = createSocket();
     const secondSocket = createSocket();
@@ -167,9 +195,10 @@ describe("MarketDataHub", () => {
 
   it("surfaces history failures without falling back to fixture candles", async () => {
     const retry = vi.fn();
+    const socket = createSocket();
     const hub = new MarketDataHub({
       restClient: { fetchCandles: vi.fn().mockRejectedValue(new Error("offline")) },
-      socketFactory: vi.fn(),
+      socketFactory: vi.fn(() => socket),
     });
     const unsubscribe = hub.subscribe(request, retry);
     await flushHistory();
@@ -180,6 +209,7 @@ describe("MarketDataHub", () => {
       error: { kind: "network", message: "offline" },
     });
     expect(retry).toHaveBeenCalled();
+    expect(socket.close).toHaveBeenCalledTimes(1);
     unsubscribe();
   });
 });

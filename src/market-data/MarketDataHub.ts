@@ -49,6 +49,7 @@ interface MarketDataEntry {
   historyReady: boolean;
   historyController: AbortController | null;
   socket: BinanceKlineSocket | null;
+  socketOpen: boolean;
   reconnectTimer: TimerHandle | null;
   staleTimer: TimerHandle | null;
   reconnectAttempt: number;
@@ -177,6 +178,7 @@ export class MarketDataHub {
       historyReady: false,
       historyController: null,
       socket: null,
+      socketOpen: false,
       reconnectTimer: null,
       staleTimer: null,
       reconnectAttempt: 0,
@@ -205,6 +207,7 @@ export class MarketDataHub {
 
     const controller = new AbortController();
     entry.historyController = controller;
+    this.connect(entry);
     void this.loadHistory(entry, controller);
   }
 
@@ -220,35 +223,46 @@ export class MarketDataHub {
         throw new BinanceMarketDataError("payload", "Binance returned no historical candles");
       }
 
+      const pendingUpdates = entry.pendingUpdates;
       let mergedCandles = candles;
 
-      for (const update of entry.pendingUpdates) {
+      for (const update of pendingUpdates) {
         mergedCandles = upsertCandle(mergedCandles, update.candle);
       }
 
       entry.pendingUpdates = [];
       entry.historyReady = true;
+      const status = entry.socketOpen
+        ? "live"
+        : entry.socket
+          ? "connecting"
+          : "disconnected";
       this.publish(entry, {
         candles: mergedCandles,
-        status: "connecting",
-        error: null,
-        lastUpdateAt: null,
+        status,
+        error: status === "live" ? null : entry.snapshot.error,
+        lastUpdateAt: pendingUpdates.length > 0 ? this.now() : entry.snapshot.lastUpdateAt,
       });
-      this.connect(entry);
+
+      if (status === "live") {
+        this.scheduleStale(entry);
+      }
     } catch (error) {
       if (!this.isActive(entry, controller) || controller.signal.aborted) {
         return;
       }
 
+      const errorInfo = this.toErrorInfo(error, "network");
+      this.stop(entry);
       this.publish(entry, {
         status: "error",
-        error: this.toErrorInfo(error, "network"),
+        error: errorInfo,
       });
     }
   }
 
   private connect(entry: MarketDataEntry): void {
-    if (!entry.active) {
+    if (!entry.active || entry.socket) {
       return;
     }
 
@@ -267,8 +281,11 @@ export class MarketDataHub {
     }
 
     entry.socket = socket;
+    entry.socketOpen = false;
     this.publish(entry, {
-      status: entry.reconnectAttempt > 0 ? "reconnecting" : "connecting",
+      status: entry.historyReady
+        ? entry.reconnectAttempt > 0 ? "reconnecting" : "connecting"
+        : "loading",
       error: null,
     });
 
@@ -277,13 +294,17 @@ export class MarketDataHub {
         return;
       }
 
+      entry.socketOpen = true;
       entry.reconnectAttempt = 0;
       this.publish(entry, {
-        status: "live",
+        status: entry.historyReady ? "live" : "loading",
         error: null,
         lastUpdateAt: this.now(),
       });
-      this.scheduleStale(entry);
+
+      if (entry.historyReady) {
+        this.scheduleStale(entry);
+      }
     };
 
     socket.onmessage = (event) => {
@@ -320,6 +341,7 @@ export class MarketDataHub {
         return;
       }
 
+      entry.socketOpen = false;
       this.publish(entry, {
         status: "disconnected",
         error: {
@@ -334,6 +356,7 @@ export class MarketDataHub {
         return;
       }
 
+      entry.socketOpen = false;
       entry.socket = null;
       this.clearStaleTimer(entry);
       this.scheduleReconnect(entry);
@@ -423,6 +446,7 @@ export class MarketDataHub {
 
     const socket = entry.socket;
     entry.socket = null;
+    entry.socketOpen = false;
     socket?.close();
   }
 
