@@ -10,6 +10,7 @@ import type { Candle } from "../../types/market";
 
 interface PriceChartProps {
   candles: Candle[];
+  symbol: string;
 }
 
 const chartColors = {
@@ -21,8 +22,9 @@ const chartColors = {
   down: "#ff8b6f",
 };
 
-export default function PriceChart({ candles }: PriceChartProps) {
+export default function PriceChart({ candles, symbol }: PriceChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const latestCandle = candles[candles.length - 1];
 
   useEffect(() => {
     const container = containerRef.current;
@@ -113,5 +115,9 @@ export default function PriceChart({ candles }: PriceChartProps) {
     };
   }, [candles]);
 
-  return <div ref={containerRef} className="chart-canvas" aria-label="BTCUSD candlestick chart" />;
+  const chartSummary = latestCandle
+    ? `${symbol} candlestick chart with ${candles.length} candles. Latest close ${latestCandle.close.toFixed(2)}.`
+    : `${symbol} candlestick chart with no data.`;
+
+  return <div ref={containerRef} className="chart-canvas" role="img" aria-label={chartSummary} />;
 }

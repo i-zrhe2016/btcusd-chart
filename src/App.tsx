@@ -11,7 +11,7 @@ import {
   Settings2,
   Star,
 } from "lucide-react";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import PriceChart from "./components/chart/PriceChart";
 import { createFixtureCandles } from "./data/fixtureCandles";
 import { useChartStore } from "./stores/chartStore";
@@ -35,11 +35,28 @@ function formatVolume(value: number) {
   return `${(value / 1_000).toFixed(1)}K`;
 }
 
+function formatSigned(value: number, suffix = "") {
+  const sign = value >= 0 ? "+" : "-";
+  return `${sign}${formatPrice(Math.abs(value))}${suffix}`;
+}
+
 export default function App() {
   const symbol = useChartStore((state) => state.symbol);
   const interval = useChartStore((state) => state.interval);
+  const setSymbol = useChartStore((state) => state.setSymbol);
   const setInterval = useChartStore((state) => state.setInterval);
-  const candles = useMemo(() => createFixtureCandles(interval), [interval]);
+  const [watchlistQuery, setWatchlistQuery] = useState("");
+  const selectedMarket = watchlist.find((item) => item.symbol === symbol) ?? watchlist[0];
+  const candles = useMemo(() => createFixtureCandles(interval, symbol), [interval, symbol]);
+  const visibleWatchlist = useMemo(() => {
+    const query = watchlistQuery.trim().toUpperCase();
+
+    if (!query) {
+      return watchlist;
+    }
+
+    return watchlist.filter((item) => item.symbol.includes(query));
+  }, [watchlistQuery]);
   const stats = useMemo(() => {
     const first = candles[0];
     const last = candles[candles.length - 1];
@@ -81,13 +98,13 @@ export default function App() {
         </div>
 
         <div className="topbar-actions">
-          <button className="icon-button" type="button" title="Search markets" aria-label="Search markets">
+          <button className="icon-button" type="button" title="Unavailable in preview" aria-label="Search markets" disabled>
             <Search size={17} />
           </button>
-          <button className="icon-button" type="button" title="Notifications" aria-label="Notifications">
+          <button className="icon-button" type="button" title="Unavailable in preview" aria-label="Notifications" disabled>
             <Bell size={17} />
           </button>
-          <button className="profile-button" type="button" aria-label="Open profile menu">
+          <button className="profile-button" type="button" title="Unavailable in preview" aria-label="Open profile menu" disabled>
             <span className="profile-avatar">ML</span>
             <ChevronDown size={14} />
           </button>
@@ -101,13 +118,20 @@ export default function App() {
               <span className="eyebrow">Markets</span>
               <h2>Watchlist</h2>
             </div>
-            <button className="icon-button subtle" type="button" title="Add market" aria-label="Add market">
+            <button className="icon-button subtle" type="button" title="Unavailable in preview" aria-label="Add market" disabled>
               <Plus size={16} />
             </button>
           </div>
-          <label className="search-field">
+          <label className="search-field" htmlFor="watchlist-search">
             <Search size={14} aria-hidden="true" />
-            <input type="search" placeholder="Find symbol" aria-label="Find symbol" />
+            <input
+              id="watchlist-search"
+              type="search"
+              placeholder="Find symbol"
+              aria-label="Find symbol"
+              value={watchlistQuery}
+              onChange={(event) => setWatchlistQuery(event.target.value)}
+            />
             <span className="key-hint">/</span>
           </label>
           <div className="watchlist-columns" aria-hidden="true">
@@ -115,8 +139,14 @@ export default function App() {
             <span>Last</span>
           </div>
           <div className="watchlist-items">
-            {watchlist.map((item) => (
-              <div className={`watchlist-row ${item.symbol === symbol ? "active" : ""}`} key={item.symbol}>
+            {visibleWatchlist.map((item) => (
+              <button
+                className={`watchlist-row ${item.symbol === symbol ? "active" : ""}`}
+                type="button"
+                aria-pressed={item.symbol === symbol}
+                key={item.symbol}
+                onClick={() => setSymbol(item.symbol)}
+              >
                 <div className="watchlist-symbol">
                   <Star size={13} fill={item.symbol === symbol ? "currentColor" : "none"} />
                   <div>
@@ -128,8 +158,9 @@ export default function App() {
                   <strong>{item.price}</strong>
                   <span className={`tone-${item.tone}`}>{item.change}</span>
                 </div>
-              </div>
+              </button>
             ))}
+            {visibleWatchlist.length === 0 && <div className="watchlist-empty">No local symbols</div>}
           </div>
           <div className="watchlist-footer">
             <Radio size={14} />
@@ -143,16 +174,20 @@ export default function App() {
               <div className="instrument-line">
                 <BarChart3 size={18} aria-hidden="true" />
                 <h1>{symbol}</h1>
-                <span className="instrument-badge">Spot</span>
+                <span className="instrument-badge">
+                  {selectedMarket.venue === "Binance spot" ? "Spot" : "Preview"}
+                </span>
               </div>
-              <span className="instrument-source">Binance symbol mapping / local preview</span>
+              <span className="instrument-source">
+                {selectedMarket.venue === "Binance spot" ? "Binance symbol mapping / local preview" : "Local fixture / watchlist preview"}
+              </span>
             </div>
             <div className="toolbar-actions">
-              <button className="tool-button" type="button" title="Chart settings" aria-label="Chart settings">
+              <button className="tool-button" type="button" title="Unavailable in preview" aria-label="Chart settings" disabled>
                 <Settings2 size={15} />
                 <span>Chart</span>
               </button>
-              <button className="icon-button subtle" type="button" title="More chart actions" aria-label="More chart actions">
+              <button className="icon-button subtle" type="button" title="Unavailable in preview" aria-label="More chart actions" disabled>
                 <Menu size={17} />
               </button>
             </div>
@@ -179,11 +214,13 @@ export default function App() {
             </div>
           </div>
 
-          <section className="quote-strip" aria-label="BTCUSD quote summary">
+          <section className="quote-strip" aria-label={`${symbol} quote summary`}>
             <div className="quote-primary">
               <span className="quote-label">Last price</span>
               <strong>{formatPrice(stats.last)}</strong>
-              <span className="quote-up">+{formatPrice(stats.change)} / +{stats.changePercent.toFixed(2)}%</span>
+              <span className={stats.change >= 0 ? "quote-up" : "quote-down"}>
+                {formatSigned(stats.change)} / {formatSigned(stats.changePercent, "%")}
+              </span>
             </div>
             <div className="quote-stat">
               <span>Session high</span>
@@ -207,13 +244,13 @@ export default function App() {
               </div>
               <div className="chart-header-tools">
                 <span className="chart-state"><Clock3 size={13} /> Historical preview</span>
-                <button className="icon-button chart-icon" type="button" title="Expand chart" aria-label="Expand chart">
+                <button className="icon-button chart-icon" type="button" title="Unavailable in preview" aria-label="Expand chart" disabled>
                   <Menu size={16} />
                 </button>
               </div>
             </div>
             <div className="chart-stage">
-              <PriceChart candles={candles} />
+              <PriceChart candles={candles} symbol={symbol} />
             </div>
             <div className="chart-legend">
               <span><i className="legend-swatch up" /> Up candle</span>
