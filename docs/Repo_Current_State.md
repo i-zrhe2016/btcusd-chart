@@ -1,35 +1,40 @@
 # Repository Current State
 
-Last verified: 2026-09-17 @ 99a9246
+Last verified: 2026-09-17 @ aad9254
 
 ## Current Focus
 
-- Unified web chart foundation is delivered; the next implementation is Binance history and realtime data in [Issue #8](https://github.com/i-zrhe2016/btcusd-chart/issues/8).
+- Binance-backed web market data is delivered; the next implementation is responsive chart layouts and link groups in [Issue #9](https://github.com/i-zrhe2016/btcusd-chart/issues/9).
 
 ## Implemented
 
 - A Vite + React + TypeScript browser app serves the root route with a responsive market-terminal workspace.
-- Lightweight Charts 5.2 renders deterministic candlesticks and volume for `BTCUSD`, `ETHUSD`, `SOLUSD`, and `BNBUSD` across the supported intervals.
+- Lightweight Charts 5.2 renders Binance-backed candlesticks and volume for `BTCUSD`, `ETHUSD`, `SOLUSD`, and `BNBUSD` across the supported intervals.
 - Typed Zustand state drives symbol and interval selection, with watchlist filtering, symbol switching, keyboard-accessible controls, and a mobile market selector.
-- Chart resources are resized and disposed through the component lifecycle; fixture data is deterministic and explicitly presented as preview data.
-- `npm test`, `npm run typecheck`, and `npm run build` pass on the verified base commit.
+- `BinanceRestClient` loads public historical klines through the Binance market-data REST endpoint, while the public kline WebSocket supplies open-candle and closed-candle updates.
+- `MarketDataHub` shares identical market-key subscriptions within one browser tab, reference-counts listeners, buffers the REST/WebSocket handoff, reconnects with bounded backoff, and exposes stale/disconnected/error states.
+- Chart resources are resized and disposed through the component lifecycle; live candle tails use incremental series updates and fixture generation remains isolated to tests.
+- `npm test` (21 tests), `npm run typecheck`, `npm run build`, `npm audit --omit=dev`, and the production-browser smoke flow pass on the delivered integration.
 
 ## Known Issues / Failing Checks
 
-- None known in the delivered foundation. Live exchange connectivity is intentionally not implemented yet.
+- None known in the delivered integration. Public market data still depends on Binance availability and the browser network path.
 
 ## Constraints
 
 - Delivery is browser-only; Electron, native windows, IPC, and desktop packaging are out of scope.
-- Market data is local fixture data until Issue #8 is delivered; the UI must not present it as live exchange data.
+- The initial source is Binance public spot data: `BTCUSD -> BTCUSDT`, `ETHUSD -> ETHUSDT`, `SOLUSD -> SOLUSDT`, and `BNBUSD -> BNBUSDT`.
+- History and realtime subscriptions are shared only within the current browser tab; authentication, private APIs, backend proxying, cross-tab sharing, and other exchanges are out of scope for the current MVP.
 - Supported runtime versions are Node `^20.19.0 || >=22.12.0`.
 
 ## Architecture Snapshot
 
 - A single Vite/React renderer composes the workspace shell, watchlist, controls, and chart surface.
 - Zustand owns the selected symbol/interval; `PriceChart` owns one Lightweight Charts instance and its resize/unmount lifecycle.
+- `src/market-data/` contains typed Binance payload parsing, REST history, WebSocket streams, the browser-side `MarketDataHub`, and the React subscription hook.
 - Fixture generation is isolated under `src/data/`; shared market contracts are under `src/types/`.
 
 ## Next
 
-- [Issue #8](https://github.com/i-zrhe2016/btcusd-chart/issues/8): connect Binance REST history and WebSocket realtime market data through a browser-side shared hub.
+- [Issue #8](https://github.com/i-zrhe2016/btcusd-chart/issues/8): delivered Binance REST history, public WebSocket klines, and browser-side shared market data.
+- [Issue #9](https://github.com/i-zrhe2016/btcusd-chart/issues/9): add responsive chart layouts and link groups.
