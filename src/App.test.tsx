@@ -178,12 +178,15 @@ describe("App", () => {
   });
 
   it("keeps the current chart state in the browser URL", () => {
+    const pushState = vi.spyOn(window.history, "pushState");
+
     render(<App />);
 
     fireEvent.click(screen.getByRole("button", { name: "1h" }));
 
     expect(window.location.pathname).toBe("/");
     expect(window.location.search).toBe("?symbol=BTCUSD&interval=1h");
+    expect(pushState).toHaveBeenCalledWith(null, "", "/?symbol=BTCUSD&interval=1h");
   });
 
   it("rehydrates chart state when browser history changes", () => {

@@ -76,7 +76,11 @@ export function openChartWindow(
     return null;
   }
 
-  const childWindow = browserOpener(createChartWindowUrl(state, browserUrl), "_blank", POPUP_FEATURES);
+  const childWindow = browserOpener(
+    createChartWindowUrl(state, createChartWindowRouteUrl(browserUrl)),
+    "_blank",
+    POPUP_FEATURES,
+  );
 
   if (childWindow) {
     try {

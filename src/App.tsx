@@ -15,12 +15,12 @@ import {
   Star,
   WifiOff,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import PriceChart from "./components/chart/PriceChart";
 import { useMarketData } from "./market-data/useMarketData";
 import { toBinanceSymbol } from "./market-data/binanceAdapter";
 import { useChartStore } from "./stores/chartStore";
-import { INTERVALS, SYMBOLS, type WatchlistItem, type WatchlistQuote } from "./types/market";
+import { INTERVALS, SYMBOLS, type Interval, type Symbol, type WatchlistItem, type WatchlistQuote } from "./types/market";
 import type { MarketDataErrorInfo, MarketDataStatus } from "./market-data/types";
 import { openChartWindow, parseChartWindowState } from "./windowing/chartWindow";
 
@@ -112,6 +112,7 @@ export default function App() {
   const setInterval = useChartStore((state) => state.setInterval);
   const [watchlistQuery, setWatchlistQuery] = useState("");
   const [windowMessage, setWindowMessage] = useState<string | null>(null);
+  const urlHistoryMode = useRef<"push" | "replace">("replace");
   const market = useMarketData({ symbol, interval });
   const candles = market.candles;
   const watchlistQuotes = useMemo<WatchlistQuote[]>(() => watchlist.map((item) => {
@@ -184,6 +185,24 @@ export default function App() {
     setWindowMessage(null);
   };
 
+  const selectSymbol = (nextSymbol: Symbol) => {
+    if (nextSymbol === symbol) {
+      return;
+    }
+
+    urlHistoryMode.current = "push";
+    setSymbol(nextSymbol);
+  };
+
+  const selectInterval = (nextInterval: Interval) => {
+    if (nextInterval === interval) {
+      return;
+    }
+
+    urlHistoryMode.current = "push";
+    setInterval(nextInterval);
+  };
+
   useEffect(() => {
     document.title = `${symbol} Chart`;
   }, [symbol]);
@@ -193,12 +212,22 @@ export default function App() {
 
     url.searchParams.set("symbol", symbol);
     url.searchParams.set("interval", interval);
-    window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+    const updateUrl = `${url.pathname}${url.search}${url.hash}`;
+
+    if (urlHistoryMode.current === "push") {
+      window.history.pushState(null, "", updateUrl);
+    } else {
+      window.history.replaceState(null, "", updateUrl);
+    }
+
+    urlHistoryMode.current = "replace";
   }, [interval, symbol]);
 
   useEffect(() => {
     const updateFromUrl = () => {
       const nextState = parseChartWindowState(window.location.search);
+
+      urlHistoryMode.current = "replace";
 
       if (nextState.symbol !== symbol) {
         setSymbol(nextState.symbol);
@@ -313,7 +342,7 @@ export default function App() {
                 type="button"
                 aria-pressed={item.symbol === symbol}
                 key={item.symbol}
-                onClick={() => setSymbol(item.symbol)}
+                onClick={() => selectSymbol(item.symbol)}
               >
                 <div className="watchlist-symbol">
                   <Star size={13} fill={item.symbol === symbol ? "currentColor" : "none"} />
@@ -390,7 +419,7 @@ export default function App() {
                     type="button"
                     aria-pressed={option === interval}
                     key={option}
-                    onClick={() => setInterval(option)}
+                    onClick={() => selectInterval(option)}
                   >
                     {option}
                   </button>
@@ -405,7 +434,7 @@ export default function App() {
                     const nextSymbol = SYMBOLS.find((option) => option === event.target.value);
 
                     if (nextSymbol) {
-                      setSymbol(nextSymbol);
+                      selectSymbol(nextSymbol);
                     }
                   }}
                 >
