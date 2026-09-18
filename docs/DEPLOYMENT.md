@@ -64,6 +64,12 @@ real host values or credentials. Start from
 `deploy/tailscale.env.example` and keep the completed file owner-readable, for
 example at `/etc/btcusd-chart/tailscale.env`.
 
+The command must run on the approved target checkout with Docker Compose v2,
+`tailscale`, `jq`, `git`, `curl`, `hostname`, `head`, `sleep`, and `flock`
+available. The operating-system hostname and the Tailscale hostname must both
+match `TARGET_HOSTNAME`. The checkout must be clean and its `HEAD` must match
+`SOURCE_REVISION`.
+
 Required values include:
 
 - `TARGET_HOSTNAME`, `EXPECTED_NODE_ID`, and `EXPECTED_TAILSCALE_IP` for the
@@ -73,7 +79,9 @@ Required values include:
 - `TARGET_DESIGNATION=tailscale-hardened` and the target environment.
 - `SOURCE_REVISION` for the checked-out immutable Git revision.
 - `ROLLBACK_TAG` for an already available known-good image.
-- `WEB_PORT`, health/smoke paths, and the Compose project/service names.
+- `WEB_PORT`, health/smoke paths, and the Compose project/service names. The
+  optional service, port, path, wait, project, image, and lock settings use
+  the defaults shown in `deploy/tailscale.env.example` when omitted.
 
 Before the first mutation, verify the target boundary and recovery path through
 the applicable operator controls. The entrypoint deliberately refuses a
@@ -96,11 +104,18 @@ bash deploy/tailscale-compose-deploy.sh \
 ```
 
 The command builds an image tagged with the checked-out revision, updates only
-the configured Compose service, checks `/health` and the configured smoke path,
-and retains the previous image. A failed post-deploy check attempts one
-rollback and verifies the rollback health before returning failure.
+the configured Compose service, checks the configured health path (default
+`/health`) and smoke path, and retains the previous image. A failed
+post-deploy check attempts one rollback and verifies the rollback health before
+returning failure. The entrypoint also holds its local deployment lock across
+build, update, verification, and rollback so two operator invocations cannot
+interleave.
 
-Run the documented rollback explicitly when required:
+Run the documented rollback explicitly when required. Rollback still requires
+the external contract, the approved target identity, the required command-line
+tools, a clean checkout whose `HEAD` matches `SOURCE_REVISION`, a valid Compose
+configuration, and the available `ROLLBACK_TAG`; it is not a command that can
+be run safely from an arbitrary checkout:
 
 ```bash
 bash deploy/tailscale-compose-deploy.sh \

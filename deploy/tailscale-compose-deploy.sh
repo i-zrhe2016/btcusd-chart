@@ -8,6 +8,23 @@ MODE=deploy
 DRY_RUN=0
 DEPLOY_STARTED=0
 ROLLING_BACK=0
+LOCK_HELD=0
+
+TARGET_ENVIRONMENT=""
+TARGET_DESIGNATION=""
+TARGET_HOSTNAME=""
+EXPECTED_NODE_ID=""
+EXPECTED_TAILSCALE_IP=""
+SOURCE_REVISION=""
+ROLLBACK_TAG=""
+SERVICE_NAME=""
+WEB_PORT=""
+HEALTH_PATH=""
+SMOKE_PATH=""
+WAIT_SECONDS=""
+COMPOSE_PROJECT_NAME=""
+IMAGE_NAME=""
+DEPLOY_LOCK_PATH=""
 
 usage() {
   cat <<'EOF'
@@ -79,7 +96,7 @@ load_contract() {
     fi
 
     case "$key" in
-      TARGET_ENVIRONMENT|TARGET_DESIGNATION|TARGET_HOSTNAME|EXPECTED_NODE_ID|EXPECTED_TAILSCALE_IP|SOURCE_REVISION|ROLLBACK_TAG|SERVICE_NAME|WEB_PORT|HEALTH_PATH|SMOKE_PATH|WAIT_SECONDS|COMPOSE_PROJECT_NAME|IMAGE_NAME)
+      TARGET_ENVIRONMENT|TARGET_DESIGNATION|TARGET_HOSTNAME|EXPECTED_NODE_ID|EXPECTED_TAILSCALE_IP|SOURCE_REVISION|ROLLBACK_TAG|SERVICE_NAME|WEB_PORT|HEALTH_PATH|SMOKE_PATH|WAIT_SECONDS|COMPOSE_PROJECT_NAME|IMAGE_NAME|DEPLOY_LOCK_PATH)
         printf -v "$key" '%s' "$value"
         ;;
       *)
@@ -115,6 +132,7 @@ validate_contract() {
   [[ "$COMPOSE_PROJECT_NAME" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || die "invalid COMPOSE_PROJECT_NAME"
   [[ "$IMAGE_NAME" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*(/[A-Za-z0-9][A-Za-z0-9_.-]*)?$ ]] || die "invalid IMAGE_NAME"
   [[ "$SOURCE_REVISION" != latest ]] || die "SOURCE_REVISION cannot be latest"
+  [[ "$DEPLOY_LOCK_PATH" == /* && "$DEPLOY_LOCK_PATH" != *'..'* && "$DEPLOY_LOCK_PATH" != *' '* ]] || die "invalid DEPLOY_LOCK_PATH"
 }
 
 discover_target() {
@@ -136,6 +154,7 @@ discover_target() {
 }
 
 discover_revision() {
+  [[ -z "$(git -C "$ROOT_DIR" status --porcelain)" ]] || die "checkout has uncommitted changes"
   CURRENT_SHA="$(git -C "$ROOT_DIR" rev-parse HEAD)"
   EXPECTED_SHA="$(git -C "$ROOT_DIR" rev-parse "${SOURCE_REVISION}^{commit}" 2>/dev/null)" || die "SOURCE_REVISION is not a commit in this checkout"
   [[ "$CURRENT_SHA" == "$EXPECTED_SHA" ]] || die "checked-out revision does not match SOURCE_REVISION"
@@ -151,6 +170,7 @@ compose() {
     IMAGE_TAG="$image_tag" \
     WEB_BIND_ADDRESS="$ACTUAL_TAILSCALE_IP" \
     WEB_PORT="$WEB_PORT" \
+    IMAGE_NAME="$IMAGE_NAME" \
     COMPOSE_PROJECT_NAME="$COMPOSE_PROJECT_NAME" \
     docker compose -f "$COMPOSE_FILE" "$@" \
   )
@@ -165,15 +185,68 @@ verify_image() {
 }
 
 wait_for_service() {
-  local base_url="http://${ACTUAL_TAILSCALE_IP}:${WEB_PORT}" attempt
-  for ((attempt = 1; attempt <= WAIT_SECONDS; attempt++)); do
-    if curl --fail --silent --show-error --max-time 5 "$base_url$HEALTH_PATH" >/dev/null \
-      && curl --fail --silent --show-error --max-time 5 "$base_url$SMOKE_PATH" >/dev/null; then
-      return 0
+  local base_url="http://${ACTUAL_TAILSCALE_IP}:${WEB_PORT}" started_at=$SECONDS remaining timeout
+  while :; do
+    remaining=$((WAIT_SECONDS - (SECONDS - started_at)))
+    ((remaining > 0)) || return 1
+    timeout=$((remaining < 5 ? remaining : 5))
+    if curl --fail --silent --show-error --max-time "$timeout" "$base_url$HEALTH_PATH" >/dev/null; then
+      remaining=$((WAIT_SECONDS - (SECONDS - started_at)))
+      if ((remaining > 0)); then
+        timeout=$((remaining < 5 ? remaining : 5))
+        if curl --fail --silent --show-error --max-time "$timeout" "$base_url$SMOKE_PATH" >/dev/null; then
+          return 0
+        fi
+      fi
     fi
+    remaining=$((WAIT_SECONDS - (SECONDS - started_at)))
+    ((remaining > 0)) || return 1
     sleep 1
   done
-  return 1
+}
+
+acquire_deploy_lock() {
+  local lock_dir
+  lock_dir="$(dirname -- "$DEPLOY_LOCK_PATH")"
+  [[ -d "$lock_dir" ]] || die "deployment lock directory does not exist: $lock_dir"
+  exec 9>"$DEPLOY_LOCK_PATH"
+  flock -n 9 || die "another deployment is already active"
+  LOCK_HELD=1
+}
+
+release_deploy_lock() {
+  ((LOCK_HELD == 1)) || return 0
+  flock -u 9 2>/dev/null || true
+  exec 9>&-
+  LOCK_HELD=0
+}
+
+verify_compose_image_name() {
+  local rendered_image
+  rendered_image="$(compose "$REVISION_TAG" config | awk '$1 == "image:" {print $2; exit}')"
+  [[ "$rendered_image" == "$IMAGE_NAME:$REVISION_TAG" ]] || die "Compose image does not match IMAGE_NAME and revision"
+}
+
+run_deployment() {
+  acquire_deploy_lock
+
+  if [[ "$MODE" == rollback ]]; then
+    DEPLOY_STARTED=1
+    rollback
+    release_deploy_lock
+    return 0
+  fi
+
+  log "building $IMAGE_NAME:$REVISION_TAG"
+  compose "$REVISION_TAG" build --pull=false "$SERVICE_NAME"
+  DEPLOY_STARTED=1
+  log "starting service $SERVICE_NAME"
+  compose "$REVISION_TAG" up -d --no-build "$SERVICE_NAME"
+  log "waiting for configured health and smoke checks"
+  wait_for_service || die "post-deploy health or smoke check failed"
+  verify_image "$REVISION_TAG" || die "running image does not match the requested revision"
+  log "deployment verified"
+  release_deploy_lock
 }
 
 rollback() {
@@ -199,6 +272,7 @@ on_exit() {
       log "deployment failed and rollback was not verified"
     fi
   fi
+  release_deploy_lock
   exit "$status"
 }
 
@@ -249,6 +323,7 @@ main() {
   require_command curl
   require_command head
   require_command sleep
+  require_command flock
 
   validate_contract
   discover_target
@@ -256,6 +331,7 @@ main() {
 
   docker image inspect "$IMAGE_NAME:$ROLLBACK_TAG" >/dev/null 2>&1 || die "rollback image is not available: $IMAGE_NAME:$ROLLBACK_TAG"
   compose "$REVISION_TAG" config >/dev/null || die "Compose configuration is invalid"
+  verify_compose_image_name
 
   log "target=$TARGET_HOSTNAME address=$ACTUAL_TAILSCALE_IP port=$WEB_PORT revision=$REVISION_TAG rollback=$ROLLBACK_TAG"
   if ((DRY_RUN == 1)); then
@@ -265,20 +341,11 @@ main() {
   fi
 
   if [[ "$MODE" == rollback ]]; then
-    DEPLOY_STARTED=1
-    rollback
+    run_deployment
     return 0
   fi
 
-  log "building $IMAGE_NAME:$REVISION_TAG"
-  compose "$REVISION_TAG" build --pull=false "$SERVICE_NAME"
-  DEPLOY_STARTED=1
-  log "starting service $SERVICE_NAME"
-  compose "$REVISION_TAG" up -d --no-build "$SERVICE_NAME"
-  log "waiting for health and smoke checks"
-  wait_for_service || die "post-deploy health or smoke check failed"
-  verify_image "$REVISION_TAG" || die "running image does not match the requested revision"
-  log "deployment verified"
+  run_deployment
 }
 
 trap on_exit EXIT
