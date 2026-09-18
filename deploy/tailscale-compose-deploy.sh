@@ -86,29 +86,41 @@ valid_path() {
   [[ "$1" == /* ]] && [[ "$1" != *'..'* ]] && [[ "$1" != *' '* ]]
 }
 
+validate_trusted_directory() {
+  local directory="$1" label="$2" directory_owner directory_mode directory_type directory_bits
+  [[ -d "$directory" ]] || die "$label directory does not exist: $directory"
+  [[ ! -L "$directory" ]] || die "$label directory must not be a symlink"
+  directory_owner="$(stat -c '%u' -- "$directory")"
+  directory_mode="$(stat -c '%a' -- "$directory")"
+  directory_type="$(stat -c '%F' -- "$directory")"
+  [[ "$directory_type" == directory && "$directory_owner" == "$EUID" ]] || die "$label directory must be owned by the current user"
+  directory_bits=$((8#$directory_mode))
+  (( (directory_bits & 0022) == 0 || (directory_bits & 01000) != 0 )) || die "$label directory must not be group- or world-writable unless sticky"
+}
+
 validate_lock_path() {
-  local lock_dir lock_name lock_owner lock_mode lock_type lock_bits
+  local lock_dir lock_name
   lock_dir="${DEPLOY_LOCK_PATH%/*}"
   lock_name="${DEPLOY_LOCK_PATH##*/}"
-  [[ -n "$lock_dir" && -d "$lock_dir" ]] || die "deployment lock directory does not exist: $lock_dir"
   [[ "$lock_name" =~ ^[A-Za-z0-9_.-]+$ ]] || die "invalid deployment lock filename"
-  [[ ! -L "$lock_dir" ]] || die "deployment lock directory must not be a symlink"
-
-  lock_owner="$(stat -c '%u' -- "$lock_dir")"
-  lock_mode="$(stat -c '%a' -- "$lock_dir")"
-  lock_type="$(stat -c '%F' -- "$lock_dir")"
-  [[ "$lock_type" == directory && "$lock_owner" == "$EUID" ]] || die "deployment lock directory must be owned by the current user"
-  lock_bits=$((8#$lock_mode))
-  (( (lock_bits & 0022) == 0 || (lock_bits & 01000) != 0 )) || die "deployment lock directory must not be group- or world-writable unless sticky"
+  validate_trusted_directory "$lock_dir" "deployment lock"
 }
 
 load_contract() {
   [[ -r "$CONFIG_PATH" ]] || die "deployment contract not readable: $CONFIG_PATH"
 
-  local line key value mode mode_bits
+  local line key value mode mode_bits config_dir config_owner config_type
   local -A seen_keys=()
 
-  mode="$(stat -c '%a' -- "$CONFIG_PATH")" || die "could not inspect deployment contract permissions"
+  config_dir="${CONFIG_PATH%/*}"
+  [[ "$config_dir" == "$CONFIG_PATH" ]] && config_dir=.
+  validate_trusted_directory "$config_dir" "deployment contract"
+  [[ ! -L "$CONFIG_PATH" ]] || die "deployment contract must not be a symlink"
+  exec 8<"$CONFIG_PATH" || die "could not open deployment contract"
+  mode="$(stat -L -c '%a' -- "/proc/$$/fd/8")" || die "could not inspect deployment contract permissions"
+  config_owner="$(stat -L -c '%u' -- "/proc/$$/fd/8")" || die "could not inspect deployment contract owner"
+  config_type="$(stat -L -c '%F' -- "/proc/$$/fd/8")" || die "could not inspect deployment contract type"
+  [[ "$config_owner" == "$EUID" && "$config_type" == "regular file" ]] || die "deployment contract must be a regular file owned by the current user"
   [[ "$mode" =~ ^[0-7]{3,4}$ ]] || die "could not determine deployment contract permissions"
   mode_bits=$((8#$mode))
   (( (mode_bits & 0400) != 0 && (mode_bits & 0077) == 0 )) || die "deployment contract must have owner-read mode and no group/other mode access"
@@ -137,7 +149,8 @@ load_contract() {
         die "unsupported contract key: $key"
         ;;
     esac
-  done < "$CONFIG_PATH"
+  done <&8
+  exec 8<&-
 }
 
 require_contract_value() {
@@ -162,11 +175,11 @@ validate_contract() {
   valid_digest "$ROLLBACK_IMAGE_DIGEST" || die "invalid ROLLBACK_IMAGE_DIGEST"
   valid_path "$HEALTH_PATH" || die "invalid HEALTH_PATH"
   valid_path "$SMOKE_PATH" || die "invalid SMOKE_PATH"
-  [[ "$WAIT_SECONDS" =~ ^[0-9]+$ ]] && ((WAIT_SECONDS >= 1 && WAIT_SECONDS <= 300)) || die "invalid WAIT_SECONDS"
+  [[ "$WAIT_SECONDS" =~ ^[0-9]+$ ]] && ((10#$WAIT_SECONDS >= 1 && 10#$WAIT_SECONDS <= 300)) || die "invalid WAIT_SECONDS"
   [[ "$SERVICE_NAME" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || die "invalid SERVICE_NAME"
   [[ "$COMPOSE_PROJECT_NAME" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || die "invalid COMPOSE_PROJECT_NAME"
   [[ "$IMAGE_NAME" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*(/[A-Za-z0-9][A-Za-z0-9_.-]*)?$ ]] || die "invalid IMAGE_NAME"
-  [[ "$SOURCE_REVISION" =~ ^[0-9a-fA-F]{40}$ ]] || die "SOURCE_REVISION must be a full commit ID"
+  [[ "$SOURCE_REVISION" =~ ^[0-9a-f]{40}$ ]] || die "SOURCE_REVISION must be a lowercase full commit ID"
   [[ "$DEPLOY_LOCK_PATH" == /* && "$DEPLOY_LOCK_PATH" != *'..'* && "$DEPLOY_LOCK_PATH" != *' '* ]] || die "invalid DEPLOY_LOCK_PATH"
   validate_lock_path
 }
@@ -268,15 +281,6 @@ verify_compose_image_name() {
   [[ "$rendered_image" == "$IMAGE_NAME:$REVISION_TAG" ]] || die "Compose image does not match IMAGE_NAME and revision"
 }
 
-image_digest() {
-  local image_reference="$1" repository_digest digest
-  repository_digest="$(docker image inspect "$image_reference" --format '{{range .RepoDigests}}{{println .}}{{end}}' 2>/dev/null | head -n 1)" || return 1
-  [[ "$repository_digest" == "$IMAGE_NAME@"* ]] || return 1
-  digest="${repository_digest##*@}"
-  valid_digest "$digest" || return 1
-  printf '%s\n' "$digest"
-}
-
 image_id() {
   local image_reference="$1" image_id
   image_id="$(docker image inspect "$image_reference" --format '{{.Id}}' 2>/dev/null)" || return 1
@@ -284,10 +288,10 @@ image_id() {
   printf '%s\n' "$image_id"
 }
 
-verify_image_digest() {
-  local image_reference="$1" expected_digest="$2" actual_digest
-  actual_digest="$(image_digest "$image_reference")" || return 1
-  [[ "$actual_digest" == "$expected_digest" ]]
+verify_image_id() {
+  local image_reference="$1" expected_id="$2" actual_id
+  actual_id="$(image_id "$image_reference")" || return 1
+  [[ "$actual_id" == "$expected_id" ]]
 }
 
 run_deployment() {
@@ -302,8 +306,8 @@ run_deployment() {
 
   log "building $IMAGE_NAME:$REVISION_TAG"
   compose "$IMAGE_NAME:$REVISION_TAG" "$REVISION_TAG" build --pull=false "$SERVICE_NAME"
-  REVISION_IMAGE_DIGEST="$(image_digest "$IMAGE_NAME:$REVISION_TAG")" || die "built image digest is unavailable"
-  REVISION_IMAGE_REFERENCE="$IMAGE_NAME@$REVISION_IMAGE_DIGEST"
+  REVISION_IMAGE_DIGEST="$(image_id "$IMAGE_NAME:$REVISION_TAG")" || die "built image ID is unavailable"
+  REVISION_IMAGE_REFERENCE="$REVISION_IMAGE_DIGEST"
   DEPLOY_STARTED=1
   log "starting service $SERVICE_NAME"
   compose "$REVISION_IMAGE_REFERENCE" "$REVISION_TAG" up -d --no-build "$SERVICE_NAME"
@@ -396,9 +400,9 @@ main() {
   discover_target
   discover_revision
 
-  ROLLBACK_IMAGE_REFERENCE="$IMAGE_NAME@$ROLLBACK_IMAGE_DIGEST"
-  verify_image_digest "$IMAGE_NAME:$ROLLBACK_TAG" "$ROLLBACK_IMAGE_DIGEST" || die "rollback tag does not match ROLLBACK_IMAGE_DIGEST"
-  verify_image_digest "$ROLLBACK_IMAGE_REFERENCE" "$ROLLBACK_IMAGE_DIGEST" || die "rollback digest reference is not available: $ROLLBACK_IMAGE_REFERENCE"
+  ROLLBACK_IMAGE_REFERENCE="$ROLLBACK_IMAGE_DIGEST"
+  verify_image_id "$IMAGE_NAME:$ROLLBACK_TAG" "$ROLLBACK_IMAGE_DIGEST" || die "rollback tag does not match ROLLBACK_IMAGE_DIGEST"
+  verify_image_id "$ROLLBACK_IMAGE_REFERENCE" "$ROLLBACK_IMAGE_DIGEST" || die "rollback image ID is not available: $ROLLBACK_IMAGE_REFERENCE"
   compose "$IMAGE_NAME:$REVISION_TAG" "$REVISION_TAG" config >/dev/null || die "Compose configuration is invalid"
   verify_compose_image_name
 

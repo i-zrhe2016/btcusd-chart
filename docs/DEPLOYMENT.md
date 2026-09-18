@@ -84,11 +84,9 @@ Required values include:
 - `TARGET_DESIGNATION=tailscale-hardened` and the target environment.
 - `SOURCE_REVISION` for the checked-out immutable 40-character Git commit ID.
 - `ROLLBACK_TAG` and `ROLLBACK_IMAGE_DIGEST` for an already available
-  known-good image. The digest must be a repository manifest digest present in
-  the image's `RepoDigests` and must match the local tag. Obtain the full
-  repository digest on the target with
-  `docker image inspect <image>:<tag> --format '{{index .RepoDigests 0}}'`,
-  then use the `sha256:...` suffix as `ROLLBACK_IMAGE_DIGEST`.
+  known-good local image. `ROLLBACK_IMAGE_DIGEST` is the local content-addressed
+  image ID returned by `.Id`, and it must match the local tag. Obtain it on the
+  target with `docker image inspect <image>:<tag> --format '{{.Id}}'`.
 - `WEB_PORT`, health/smoke paths, and the Compose project/service names. The
   optional service, port, path, wait, project, image, and lock settings use
   the defaults shown in `deploy/tailscale.env.example` when omitted.
@@ -114,7 +112,7 @@ bash deploy/tailscale-compose-deploy.sh \
 ```
 
 The command builds an image tagged with the checked-out revision, captures its
-content digest, starts that exact digest, updates only the configured Compose
+local content-addressed image ID, starts that exact image ID, updates only the configured Compose
 service, checks the configured health path (default `/health`) and smoke path,
 and retains the previous image. A failed
 post-deploy check attempts one rollback and verifies the rollback health before
