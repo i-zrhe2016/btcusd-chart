@@ -12,6 +12,11 @@ The current market mapping includes `BTCUSD -> BTCUSDT`, `ETHUSD -> ETHUSDT`,
 `SOLUSD -> SOLUSDT`, and `BNBUSD -> BNBUSDT`. Public history uses Binance's
 market-data REST endpoint and realtime candles use the public kline stream.
 
+The chart toolbar can open the active symbol and interval in an independent
+browser window. The child window restores its chart state from URL parameters;
+Electron and cross-window synchronization are not required for this web flow.
+See [docs/WEB_WORKSPACES.md](docs/WEB_WORKSPACES.md) for the current behavior.
+
 ## Development
 
 ```bash

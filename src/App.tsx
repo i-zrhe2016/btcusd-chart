@@ -4,6 +4,7 @@ import {
   Bell,
   ChevronDown,
   Clock3,
+  ExternalLink,
   LoaderCircle,
   Menu,
   Plus,
@@ -14,13 +15,14 @@ import {
   Star,
   WifiOff,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import PriceChart from "./components/chart/PriceChart";
 import { useMarketData } from "./market-data/useMarketData";
 import { toBinanceSymbol } from "./market-data/binanceAdapter";
 import { useChartStore } from "./stores/chartStore";
-import { INTERVALS, SYMBOLS, type WatchlistItem, type WatchlistQuote } from "./types/market";
+import { INTERVALS, SYMBOLS, type Interval, type Symbol, type WatchlistItem, type WatchlistQuote } from "./types/market";
 import type { MarketDataErrorInfo, MarketDataStatus } from "./market-data/types";
+import { openChartWindow, parseChartWindowState } from "./windowing/chartWindow";
 
 const watchlist: WatchlistItem[] = [
   { symbol: "BTCUSD", venue: "Binance spot" },
@@ -109,6 +111,7 @@ export default function App() {
   const setSymbol = useChartStore((state) => state.setSymbol);
   const setInterval = useChartStore((state) => state.setInterval);
   const [watchlistQuery, setWatchlistQuery] = useState("");
+  const urlHistoryMode = useRef<"push" | "replace">("replace");
   const market = useMarketData({ symbol, interval });
   const candles = market.candles;
   const watchlistQuotes = useMemo<WatchlistQuote[]>(() => watchlist.map((item) => {
@@ -170,9 +173,67 @@ export default function App() {
   const currentStatusMessage = statusMessage(market.status, market.error);
   const showChartMessage = !stats || market.status === "error";
 
+  const handleOpenChartWindow = () => {
+    openChartWindow({ symbol, interval });
+  };
+
+  const selectSymbol = (nextSymbol: Symbol) => {
+    if (nextSymbol === symbol) {
+      return;
+    }
+
+    urlHistoryMode.current = "push";
+    setSymbol(nextSymbol);
+  };
+
+  const selectInterval = (nextInterval: Interval) => {
+    if (nextInterval === interval) {
+      return;
+    }
+
+    urlHistoryMode.current = "push";
+    setInterval(nextInterval);
+  };
+
   useEffect(() => {
     document.title = `${symbol} Chart`;
   }, [symbol]);
+
+  useEffect(() => {
+    const url = new URL(window.location.href);
+
+    url.searchParams.set("symbol", symbol);
+    url.searchParams.set("interval", interval);
+    const updateUrl = `${url.pathname}${url.search}${url.hash}`;
+
+    if (urlHistoryMode.current === "push") {
+      window.history.pushState(null, "", updateUrl);
+    } else {
+      window.history.replaceState(null, "", updateUrl);
+    }
+
+    urlHistoryMode.current = "replace";
+  }, [interval, symbol]);
+
+  useEffect(() => {
+    const updateFromUrl = () => {
+      const nextState = parseChartWindowState(window.location.search);
+
+      urlHistoryMode.current = "replace";
+
+      if (nextState.symbol !== symbol) {
+        setSymbol(nextState.symbol);
+      }
+
+      if (nextState.interval !== interval) {
+        setInterval(nextState.interval);
+      }
+    };
+
+    window.addEventListener("popstate", updateFromUrl);
+
+    return () => window.removeEventListener("popstate", updateFromUrl);
+  }, [interval, setInterval, setSymbol, symbol]);
 
   useEffect(() => {
     const focusSearch = (event: KeyboardEvent) => {
@@ -273,7 +334,7 @@ export default function App() {
                 type="button"
                 aria-pressed={item.symbol === symbol}
                 key={item.symbol}
-                onClick={() => setSymbol(item.symbol)}
+                onClick={() => selectSymbol(item.symbol)}
               >
                 <div className="watchlist-symbol">
                   <Star size={13} fill={item.symbol === symbol ? "currentColor" : "none"} />
@@ -315,6 +376,16 @@ export default function App() {
                 <Settings2 size={15} />
                 <span>Chart</span>
               </button>
+              <button
+                className="tool-button"
+                type="button"
+                title="Open chart in new window"
+                aria-label="Open chart in new window"
+                onClick={handleOpenChartWindow}
+              >
+                <ExternalLink size={15} />
+                <span>New window</span>
+              </button>
               <button className="icon-button subtle" type="button" title="Not available yet" aria-label="More chart actions" disabled>
                 <Menu size={17} />
               </button>
@@ -330,7 +401,7 @@ export default function App() {
                     type="button"
                     aria-pressed={option === interval}
                     key={option}
-                    onClick={() => setInterval(option)}
+                    onClick={() => selectInterval(option)}
                   >
                     {option}
                   </button>
@@ -345,7 +416,7 @@ export default function App() {
                     const nextSymbol = SYMBOLS.find((option) => option === event.target.value);
 
                     if (nextSymbol) {
-                      setSymbol(nextSymbol);
+                      selectSymbol(nextSymbol);
                     }
                   }}
                 >

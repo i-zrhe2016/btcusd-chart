@@ -1,5 +1,5 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import PriceChart from "./components/chart/PriceChart";
 import { createFixtureCandles } from "./data/fixtureCandles";
@@ -72,6 +72,7 @@ function createChartMock() {
 
 describe("App", () => {
   beforeEach(() => {
+    window.history.replaceState(null, "", "/");
     useChartStore.setState({ symbol: "BTCUSD", interval: "15m" });
     chartMocks.applyOptions.mockReset();
     chartMocks.candleSetData.mockReset();
@@ -85,6 +86,10 @@ describe("App", () => {
     marketDataMock.error = null;
     marketDataMock.retry.mockReset();
     marketDataMock.candlesBySymbol.BTCUSD[1].volume = 4_500;
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it("updates the interval, filters the watchlist, and switches symbols", () => {
@@ -155,6 +160,45 @@ describe("App", () => {
 
     expect(change).not.toBeNull();
     expect(change?.textContent?.trim().startsWith("-")).toBe(true);
+  });
+
+  it("opens the active chart in a new browser window", () => {
+    const focus = vi.fn();
+    const openWindow = vi.spyOn(window, "open").mockReturnValue({ closed: false, focus } as unknown as Window);
+
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "Open chart in new window" }));
+
+    expect(openWindow).toHaveBeenCalledWith(
+      expect.stringContaining("symbol=BTCUSD"),
+      "_blank",
+      expect.stringContaining("popup=yes"),
+    );
+    expect(focus).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the current chart state in the browser URL", () => {
+    const pushState = vi.spyOn(window.history, "pushState");
+
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: "1h" }));
+
+    expect(window.location.pathname).toBe("/");
+    expect(window.location.search).toBe("?symbol=BTCUSD&interval=1h");
+    expect(pushState).toHaveBeenCalledWith(null, "", "/?symbol=BTCUSD&interval=1h");
+  });
+
+  it("rehydrates chart state when browser history changes", () => {
+    render(<App />);
+
+    act(() => {
+      window.history.pushState(null, "", "/?symbol=ETHUSD&interval=1h");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+
+    expect(screen.getByRole("heading", { name: "ETHUSD" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "1h" }).getAttribute("aria-pressed")).toBe("true");
   });
 
   it("cleans up the chart instance on unmount", () => {
