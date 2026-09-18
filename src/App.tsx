@@ -197,7 +197,7 @@ export default function App() {
         return;
       }
 
-      if (!ready) {
+      if (ready === false) {
         setWindowMessage("The chart window was blocked. Allow pop-ups and try again.");
       }
     });
@@ -266,9 +266,13 @@ export default function App() {
       return;
     }
 
-    const channel = new window.BroadcastChannel(createChartWindowChannelName(launchId));
-    channel.postMessage("chart-window-ready");
-    channel.close();
+    try {
+      const channel = new window.BroadcastChannel(createChartWindowChannelName(launchId));
+      channel.postMessage("chart-window-ready");
+      channel.close();
+    } catch {
+      // A failed readiness signal does not prevent the child chart from rendering.
+    }
   }, [launchId]);
 
   useEffect(() => {

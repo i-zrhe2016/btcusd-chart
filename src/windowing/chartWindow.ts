@@ -14,6 +14,7 @@ const POPUP_FEATURES = "popup=yes,width=1440,height=960,resizable=yes,scrollbars
 const CHART_WINDOW_LAUNCH_PARAM = "chartWindowLaunch";
 const CHART_WINDOW_CHANNEL_PREFIX = "btcusd-chart-window:";
 const CHART_WINDOW_READY_TIMEOUT_MS = 2_000;
+const CHART_WINDOW_LAUNCH_ID_PATTERN = /^[A-Za-z0-9-]{1,128}$/;
 
 function isSymbol(value: string | null): value is Symbol {
   return value !== null && (SYMBOLS as readonly string[]).includes(value);
@@ -50,7 +51,9 @@ export function createChartWindowUrl(state: ChartWindowState, currentUrl: string
 }
 
 export function getChartWindowLaunchId(search: string): string | null {
-  return new URLSearchParams(search).get(CHART_WINDOW_LAUNCH_PARAM);
+  const launchId = new URLSearchParams(search).get(CHART_WINDOW_LAUNCH_PARAM);
+
+  return launchId && CHART_WINDOW_LAUNCH_ID_PATTERN.test(launchId) ? launchId : null;
 }
 
 export function createChartWindowChannelName(launchId: string): string {
@@ -73,7 +76,7 @@ export type ChartWindowReadyChannelFactory = (name: string) => ChartWindowReadyC
 
 export interface ChartWindowLaunch {
   childWindow: Window | null;
-  ready: Promise<boolean>;
+  ready: Promise<boolean | null>;
 }
 
 function createLaunchId(): string {
@@ -95,9 +98,9 @@ function getReadyChannelFactory(): ChartWindowReadyChannelFactory | null {
 function waitForChartWindowReady(
   channel: ChartWindowReadyChannel | null,
   childWindow: Window | null,
-): Promise<boolean> {
+): Promise<boolean | null> {
   if (!channel || typeof window === "undefined") {
-    return Promise.resolve(childWindow !== null);
+    return Promise.resolve(childWindow === null ? null : true);
   }
 
   return new Promise((resolve) => {
@@ -172,6 +175,6 @@ export function openChartWindow(
 
   return {
     childWindow,
-    ready: readiness ?? Promise.resolve(childWindow !== null),
+    ready: readiness ?? Promise.resolve(childWindow === null ? null : true),
   };
 }

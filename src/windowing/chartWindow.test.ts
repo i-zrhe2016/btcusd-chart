@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   createChartWindowUrl,
   DEFAULT_CHART_WINDOW_STATE,
+  getChartWindowLaunchId,
   openChartWindow,
   parseChartWindowState,
   type ChartWindowReadyChannelFactory,
@@ -31,6 +32,8 @@ describe("chart window state", () => {
     });
     expect(parseChartWindowState("?symbol=%45THUSD&interval=%31h")).toEqual({ symbol: "ETHUSD", interval: "1h" });
     expect(parseChartWindowState("?symbol=%E0%A4%A&interval=%")).toEqual(DEFAULT_CHART_WINDOW_STATE);
+    expect(getChartWindowLaunchId("?chartWindowLaunch=launch-123")).toBe("launch-123");
+    expect(getChartWindowLaunchId("?chartWindowLaunch=%E0%A4%A")).toBeNull();
   });
 
   it("opens and focuses a new browser window with the encoded chart state", async () => {
@@ -84,7 +87,7 @@ describe("chart window state", () => {
     );
 
     expect(launch?.childWindow).toBeNull();
-    await expect(launch?.ready).resolves.toBe(false);
+    await expect(launch?.ready).resolves.toBeNull();
   });
 
   it("returns the child window when focusing it fails", () => {
