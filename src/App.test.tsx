@@ -72,6 +72,7 @@ function createChartMock() {
 
 describe("App", () => {
   beforeEach(() => {
+    window.history.replaceState(null, "", "/");
     useChartStore.setState({ symbol: "BTCUSD", interval: "15m" });
     chartMocks.applyOptions.mockReset();
     chartMocks.candleSetData.mockReset();
@@ -174,6 +175,15 @@ describe("App", () => {
       expect.stringContaining("popup=yes"),
     );
     expect(focus).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the current chart state in the browser URL", () => {
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: "1h" }));
+
+    expect(window.location.pathname).toBe("/");
+    expect(window.location.search).toBe("?symbol=BTCUSD&interval=1h");
   });
 
   it("shows a retry action when the browser blocks a chart window", () => {

@@ -10,6 +10,9 @@ Each window initializes its chart from the URL parameters:
 /?symbol=ETHUSD&interval=1h
 ```
 
+The active symbol and interval are kept in the current window URL, so a
+reload preserves the latest selection.
+
 The parent and child windows have independent browser state. Changing the
 symbol or interval in one window does not change the other window. They may
 still use the same public Binance market data source, but this MVP does not

@@ -189,6 +189,14 @@ export default function App() {
   }, [symbol]);
 
   useEffect(() => {
+    const url = new URL(window.location.href);
+
+    url.searchParams.set("symbol", symbol);
+    url.searchParams.set("interval", interval);
+    window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+  }, [interval, symbol]);
+
+  useEffect(() => {
     const focusSearch = (event: KeyboardEvent) => {
       const target = event.target;
 

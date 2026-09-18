@@ -48,10 +48,17 @@ export type ChartWindowOpener = (
 
 export function openChartWindow(
   state: ChartWindowState,
-  opener: ChartWindowOpener = window.open.bind(window),
-  currentUrl = window.location.href,
+  opener?: ChartWindowOpener,
+  currentUrl?: string,
 ): Window | null {
-  const childWindow = opener(createChartWindowUrl(state, currentUrl), "_blank", POPUP_FEATURES);
+  const browserOpener = opener ?? (typeof window === "undefined" ? null : window.open.bind(window));
+  const browserUrl = currentUrl ?? (typeof window === "undefined" ? null : window.location.href);
+
+  if (!browserOpener || !browserUrl) {
+    return null;
+  }
+
+  const childWindow = browserOpener(createChartWindowUrl(state, browserUrl), "_blank", POPUP_FEATURES);
 
   if (childWindow) {
     try {
