@@ -86,6 +86,22 @@ valid_path() {
   [[ "$1" == /* ]] && [[ "$1" != *'..'* ]] && [[ "$1" != *' '* ]]
 }
 
+validate_lock_path() {
+  local lock_dir lock_name lock_owner lock_mode lock_type lock_bits
+  lock_dir="${DEPLOY_LOCK_PATH%/*}"
+  lock_name="${DEPLOY_LOCK_PATH##*/}"
+  [[ -n "$lock_dir" && -d "$lock_dir" ]] || die "deployment lock directory does not exist: $lock_dir"
+  [[ "$lock_name" =~ ^[A-Za-z0-9_.-]+$ ]] || die "invalid deployment lock filename"
+  [[ ! -L "$lock_dir" ]] || die "deployment lock directory must not be a symlink"
+
+  lock_owner="$(stat -c '%u' -- "$lock_dir")"
+  lock_mode="$(stat -c '%a' -- "$lock_dir")"
+  lock_type="$(stat -c '%F' -- "$lock_dir")"
+  [[ "$lock_type" == directory && "$lock_owner" == "$EUID" ]] || die "deployment lock directory must be owned by the current user"
+  lock_bits=$((8#$lock_mode))
+  (( (lock_bits & 0022) == 0 || (lock_bits & 01000) != 0 )) || die "deployment lock directory must not be group- or world-writable unless sticky"
+}
+
 load_contract() {
   [[ -r "$CONFIG_PATH" ]] || die "deployment contract not readable: $CONFIG_PATH"
 
@@ -95,7 +111,7 @@ load_contract() {
   mode="$(stat -c '%a' -- "$CONFIG_PATH")" || die "could not inspect deployment contract permissions"
   [[ "$mode" =~ ^[0-7]{3,4}$ ]] || die "could not determine deployment contract permissions"
   mode_bits=$((8#$mode))
-  (( (mode_bits & 0400) != 0 && (mode_bits & 0077) == 0 )) || die "deployment contract must be owner-readable only"
+  (( (mode_bits & 0400) != 0 && (mode_bits & 0077) == 0 )) || die "deployment contract must have owner-read mode and no group/other mode access"
 
   while IFS= read -r line || [[ -n "$line" ]]; do
     line="${line%$'\r'}"
@@ -152,6 +168,7 @@ validate_contract() {
   [[ "$IMAGE_NAME" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*(/[A-Za-z0-9][A-Za-z0-9_.-]*)?$ ]] || die "invalid IMAGE_NAME"
   [[ "$SOURCE_REVISION" =~ ^[0-9a-fA-F]{40}$ ]] || die "SOURCE_REVISION must be a full commit ID"
   [[ "$DEPLOY_LOCK_PATH" == /* && "$DEPLOY_LOCK_PATH" != *'..'* && "$DEPLOY_LOCK_PATH" != *' '* ]] || die "invalid DEPLOY_LOCK_PATH"
+  validate_lock_path
 }
 
 discover_target() {
@@ -197,14 +214,15 @@ compose() {
 }
 
 verify_image() {
-  local expected_reference="$1" expected_tag="$2" expected_digest="$3"
-  local container_id actual_image actual_digest
+  local expected_reference="$1" expected_tag="$2"
+  local container_id actual_image actual_image_id expected_image_id
   container_id="$(compose "$expected_reference" "$expected_tag" ps -q "$SERVICE_NAME" | head -n 1)"
   [[ -n "$container_id" ]] || return 1
   actual_image="$(docker inspect "$container_id" --format '{{.Config.Image}}')"
   [[ "$actual_image" == "$expected_reference" ]] || return 1
-  actual_digest="$(docker inspect "$container_id" --format '{{.Image}}')"
-  [[ "$actual_digest" == "$expected_digest" ]]
+  actual_image_id="$(docker inspect "$container_id" --format '{{.Image}}')"
+  expected_image_id="$(image_id "$expected_reference")" || return 1
+  [[ "$actual_image_id" == "$expected_image_id" ]]
 }
 
 wait_for_service() {
@@ -230,9 +248,9 @@ wait_for_service() {
 
 acquire_deploy_lock() {
   local lock_dir
-  lock_dir="$(dirname -- "$DEPLOY_LOCK_PATH")"
-  [[ -d "$lock_dir" ]] || die "deployment lock directory does not exist: $lock_dir"
-  exec 9>"$DEPLOY_LOCK_PATH"
+  validate_lock_path
+  lock_dir="${DEPLOY_LOCK_PATH%/*}"
+  exec 9<"$lock_dir"
   flock -n 9 || die "another deployment is already active"
   LOCK_HELD=1
 }
@@ -246,15 +264,24 @@ release_deploy_lock() {
 
 verify_compose_image_name() {
   local rendered_image
-  rendered_image="$(compose "$IMAGE_NAME:$REVISION_TAG" "$REVISION_TAG" config --images "$SERVICE_NAME" | head -n 1)"
+  rendered_image="$(compose "$IMAGE_NAME:$REVISION_TAG" "$REVISION_TAG" config --format json | jq -r --arg service "$SERVICE_NAME" '.services[$service].image // empty')"
   [[ "$rendered_image" == "$IMAGE_NAME:$REVISION_TAG" ]] || die "Compose image does not match IMAGE_NAME and revision"
 }
 
 image_digest() {
-  local image_reference="$1" digest
-  digest="$(docker image inspect "$image_reference" --format '{{.Id}}' 2>/dev/null)" || return 1
+  local image_reference="$1" repository_digest digest
+  repository_digest="$(docker image inspect "$image_reference" --format '{{range .RepoDigests}}{{println .}}{{end}}' 2>/dev/null | head -n 1)" || return 1
+  [[ "$repository_digest" == "$IMAGE_NAME@"* ]] || return 1
+  digest="${repository_digest##*@}"
   valid_digest "$digest" || return 1
   printf '%s\n' "$digest"
+}
+
+image_id() {
+  local image_reference="$1" image_id
+  image_id="$(docker image inspect "$image_reference" --format '{{.Id}}' 2>/dev/null)" || return 1
+  valid_digest "$image_id" || return 1
+  printf '%s\n' "$image_id"
 }
 
 verify_image_digest() {
@@ -282,7 +309,7 @@ run_deployment() {
   compose "$REVISION_IMAGE_REFERENCE" "$REVISION_TAG" up -d --no-build "$SERVICE_NAME"
   log "waiting for configured health and smoke checks"
   wait_for_service || die "post-deploy health or smoke check failed"
-  verify_image "$REVISION_IMAGE_REFERENCE" "$REVISION_TAG" "$REVISION_IMAGE_DIGEST" || die "running image does not match the requested revision"
+  verify_image "$REVISION_IMAGE_REFERENCE" "$REVISION_TAG" || die "running image does not match the requested revision"
   log "deployment verified"
   release_deploy_lock
 }
@@ -294,7 +321,7 @@ rollback() {
     log "rollback command failed"
     return 1
   fi
-  if ! wait_for_service || ! verify_image "$ROLLBACK_IMAGE_REFERENCE" "$ROLLBACK_TAG" "$ROLLBACK_IMAGE_DIGEST"; then
+  if ! wait_for_service || ! verify_image "$ROLLBACK_IMAGE_REFERENCE" "$ROLLBACK_TAG"; then
     log "rollback verification failed"
     return 1
   fi

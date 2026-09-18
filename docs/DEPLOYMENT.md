@@ -62,15 +62,18 @@ change the container.
 The contract is external runtime configuration and must not be committed with
 real host values or credentials. Start from
 `deploy/tailscale.env.example` and keep the completed file owner-readable only
-(`chmod 600` or stricter), for example at
-`/etc/btcusd-chart/tailscale.env`.
+in its POSIX mode bits (`chmod 600` or stricter), for example at
+`/etc/btcusd-chart/tailscale.env`. Verify any extended ACLs separately; the
+entrypoint does not claim to inspect filesystem ACL entries.
 
 The command must run on the approved target checkout with Docker Compose v2,
 `tailscale`, `jq`, `git`, `curl`, `hostname`, `head`, `sleep`, `flock`, and
 `stat`
 available. The operating-system hostname and the Tailscale hostname must both
 match `TARGET_HOSTNAME`. The checkout must be clean and its `HEAD` must match
-`SOURCE_REVISION`.
+`SOURCE_REVISION`. The deployment lock uses the parent directory of
+`DEPLOY_LOCK_PATH`; that directory must be owned by the current user and must
+not be group/world-writable unless it is a sticky directory.
 
 Required values include:
 
@@ -81,9 +84,11 @@ Required values include:
 - `TARGET_DESIGNATION=tailscale-hardened` and the target environment.
 - `SOURCE_REVISION` for the checked-out immutable 40-character Git commit ID.
 - `ROLLBACK_TAG` and `ROLLBACK_IMAGE_DIGEST` for an already available
-  known-good image. The digest must match the local image content digest; it
-  can be obtained on the target with
-  `docker image inspect <image>:<tag> --format '{{.Id}}'`.
+  known-good image. The digest must be a repository manifest digest present in
+  the image's `RepoDigests` and must match the local tag. Obtain the full
+  repository digest on the target with
+  `docker image inspect <image>:<tag> --format '{{index .RepoDigests 0}}'`,
+  then use the `sha256:...` suffix as `ROLLBACK_IMAGE_DIGEST`.
 - `WEB_PORT`, health/smoke paths, and the Compose project/service names. The
   optional service, port, path, wait, project, image, and lock settings use
   the defaults shown in `deploy/tailscale.env.example` when omitted.

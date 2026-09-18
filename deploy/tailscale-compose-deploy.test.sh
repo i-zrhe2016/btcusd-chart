@@ -11,9 +11,13 @@ mkdir -p "$FAKE_BIN" "$STATE_DIR"
 TEST_SOURCE_REVISION=0123456789abcdef0123456789abcdef01234567
 TEST_ROLLBACK_DIGEST="sha256:$(printf '1%.0s' {1..64})"
 TEST_REVISION_DIGEST="sha256:$(printf '2%.0s' {1..64})"
+TEST_ROLLBACK_ID="sha256:$(printf '3%.0s' {1..64})"
+TEST_REVISION_ID="sha256:$(printf '4%.0s' {1..64})"
 export FAKE_SOURCE_REVISION="$TEST_SOURCE_REVISION"
 export FAKE_ROLLBACK_DIGEST="$TEST_ROLLBACK_DIGEST"
 export FAKE_REVISION_DIGEST="$TEST_REVISION_DIGEST"
+export FAKE_ROLLBACK_ID="$TEST_ROLLBACK_ID"
+export FAKE_REVISION_ID="$TEST_REVISION_ID"
 export FAKE_EXPECTED_COMPOSE_FILE="$ROOT_DIR/docker-compose.yml"
 
 cleanup() {
@@ -59,6 +63,10 @@ EOF
 
 cat > "$FAKE_BIN/jq" <<'EOF'
 #!/usr/bin/env bash
+if [[ "$*" == *'.services[$service].image'* ]]; then
+  sed -n 's/.*"image":"\([^"]*\)".*/\1/p'
+  exit 0
+fi
 mode="${FAKE_TARGET_MODE:-ok}"
 case "$*:$mode" in
   *Self.ID*:malformed) exit 0 ;;
@@ -103,13 +111,25 @@ cat > "$FAKE_BIN/docker" <<'EOF'
 set -Eeuo pipefail
 state_file="$FAKE_STATE_DIR/running-ref"
 if [[ "$1" == image && "$2" == inspect ]]; then
-  [[ "$4" == --format && "$5" == "{{.Id}}" ]] || exit 1
+  [[ "$4" == --format ]] || exit 1
   if [[ "${FAKE_MISSING_ROLLBACK:-0}" == 1 && ( "$3" == btcusd-chart:rollback-tag || "$3" == btcusd-chart@* ) ]]; then
     exit 1
   fi
   case "$3" in
-    btcusd-chart:rollback-tag|btcusd-chart@*) printf '%s\n' "$FAKE_ROLLBACK_DIGEST" ;;
-    btcusd-chart:test-commit) printf '%s\n' "$FAKE_REVISION_DIGEST" ;;
+    btcusd-chart:rollback-tag|btcusd-chart@$FAKE_ROLLBACK_DIGEST)
+      case "$5" in
+        "{{.Id}}") printf '%s\n' "$FAKE_ROLLBACK_ID" ;;
+        "{{range .RepoDigests}}{{println .}}{{end}}") printf 'btcusd-chart@%s\n' "$FAKE_ROLLBACK_DIGEST" ;;
+        *) exit 1 ;;
+      esac
+      ;;
+    btcusd-chart:test-commit|btcusd-chart@$FAKE_REVISION_DIGEST)
+      case "$5" in
+        "{{.Id}}") printf '%s\n' "$FAKE_REVISION_ID" ;;
+        "{{range .RepoDigests}}{{println .}}{{end}}") printf 'btcusd-chart@%s\n' "$FAKE_REVISION_DIGEST" ;;
+        *) exit 1 ;;
+      esac
+      ;;
     *) exit 1 ;;
   esac
   exit 0
@@ -120,9 +140,9 @@ if [[ "$1" == inspect ]]; then
     "{{.Config.Image}}") cat "$state_file" ;;
     "{{.Image}}")
       if [[ "$(cat "$state_file")" == *"@$FAKE_ROLLBACK_DIGEST" ]]; then
-        printf '%s\n' "$FAKE_ROLLBACK_DIGEST"
+        printf '%s\n' "$FAKE_ROLLBACK_ID"
       else
-        printf '%s\n' "$FAKE_REVISION_DIGEST"
+        printf '%s\n' "$FAKE_REVISION_ID"
       fi
       ;;
     *) exit 1 ;;
@@ -134,10 +154,10 @@ if [[ "$1" != compose ]]; then
 fi
 shift
 case " $* " in
-  *' config --images web '*)
+  *' config --format json '*)
     [[ "$*" == *"-f $FAKE_EXPECTED_COMPOSE_FILE"* ]] || exit 1
-    printf '%s\n' "$IMAGE_REFERENCE"
-    printf 'config --images web %s\n' "$IMAGE_REFERENCE" >> "$FAKE_STATE_DIR/docker.log"
+    printf 'config --format json %s\n' "$IMAGE_REFERENCE" >> "$FAKE_STATE_DIR/docker.log"
+    printf '{"services":{"web":{"image":"%s"}}}\n' "$IMAGE_REFERENCE"
     exit 0
     ;;
   *' config '*)
@@ -223,7 +243,7 @@ assert_failure env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" FAKE_DIRTY
 
 env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" bash "$SCRIPT" --config "$TMP_DIR/valid.env" --dry-run >/dev/null
 grep -F 'config' "$STATE_DIR/docker.log" >/dev/null || fail "dry-run did not validate Compose configuration"
-grep -F 'config --images web' "$STATE_DIR/docker.log" >/dev/null || fail "dry-run did not validate the configured service image"
+grep -F 'config --format json' "$STATE_DIR/docker.log" >/dev/null || fail "dry-run did not validate the configured service image"
 ! grep -E 'build|up ' "$STATE_DIR/docker.log" >/dev/null || fail "dry-run attempted a service mutation"
 
 assert_failure env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" FAKE_MISSING_ROLLBACK=1 bash "$SCRIPT" --config "$TMP_DIR/valid.env" --dry-run
