@@ -99,20 +99,7 @@ validate_trusted_directory() {
 }
 
 validate_lock_path() {
-  local lock_dir lock_name lock_owner lock_mode lock_type lock_bits
-  lock_dir="${DEPLOY_LOCK_PATH%/*}"
-  lock_name="${DEPLOY_LOCK_PATH##*/}"
-  [[ "$lock_name" =~ ^[A-Za-z0-9_.-]+$ ]] || die "invalid deployment lock filename"
-  validate_trusted_directory "$lock_dir" "deployment lock"
-  [[ ! -L "$DEPLOY_LOCK_PATH" ]] || die "deployment lock path must not be a symlink"
-  if [[ -e "$DEPLOY_LOCK_PATH" ]]; then
-    lock_owner="$(stat -c '%u' -- "$DEPLOY_LOCK_PATH")"
-    lock_mode="$(stat -c '%a' -- "$DEPLOY_LOCK_PATH")"
-    lock_type="$(stat -c '%F' -- "$DEPLOY_LOCK_PATH")"
-    [[ ( "$lock_type" == "regular file" || "$lock_type" == "regular empty file" ) && "$lock_owner" == "$EUID" ]] || die "deployment lock file must be owned by the current user"
-    lock_bits=$((8#$lock_mode))
-    (( (lock_bits & 0077) == 0 )) || die "deployment lock file must be owner-readable only"
-  fi
+  validate_trusted_directory "$DEPLOY_LOCK_PATH" "deployment lock"
 }
 
 load_contract() {
@@ -238,7 +225,10 @@ compose() {
 verify_image() {
   local expected_reference="$1" expected_tag="$2" expected_image_id="$3"
   local container_id actual_image actual_image_id
-  container_id="$(compose "$expected_reference" "$expected_tag" ps -q "$SERVICE_NAME" | head -n 1)"
+  local -a container_ids
+  mapfile -t container_ids < <(compose "$expected_reference" "$expected_tag" ps -q "$SERVICE_NAME")
+  (( ${#container_ids[@]} == 1 )) || return 1
+  container_id="${container_ids[0]}"
   [[ -n "$container_id" ]] || return 1
   actual_image="$(docker inspect "$container_id" --format '{{.Config.Image}}')"
   [[ "$actual_image" == "$expected_reference" ]] || return 1
@@ -268,13 +258,12 @@ wait_for_service() {
 }
 
 acquire_deploy_lock() {
-  local previous_umask
+  local expected_lock_id actual_lock_id
   validate_lock_path
-  previous_umask="$(umask)"
-  umask 077
-  exec 9>>"$DEPLOY_LOCK_PATH"
-  umask "$previous_umask"
-  validate_lock_path
+  expected_lock_id="$(stat -c '%d:%i' -- "$DEPLOY_LOCK_PATH")"
+  exec 9<"$DEPLOY_LOCK_PATH" || die "could not open deployment lock directory"
+  actual_lock_id="$(stat -L -c '%d:%i' -- "/proc/$$/fd/9")"
+  [[ "$actual_lock_id" == "$expected_lock_id" ]] || die "deployment lock directory changed while opening"
   flock -n 9 || die "another deployment is already active"
   LOCK_HELD=1
 }
@@ -395,7 +384,7 @@ main() {
   : "${WAIT_SECONDS:=30}"
   : "${COMPOSE_PROJECT_NAME:=btcusd-chart}"
   : "${IMAGE_NAME:=btcusd-chart}"
-  : "${DEPLOY_LOCK_PATH:=/run/btcusd-chart/btcusd-chart-deploy.lock}"
+  : "${DEPLOY_LOCK_PATH:=/run/btcusd-chart}"
 
   require_command hostname
   require_command tailscale
@@ -406,6 +395,7 @@ main() {
   require_command head
   require_command sleep
   require_command flock
+  docker compose version >/dev/null 2>&1 || die "Docker Compose v2 is required: docker compose version failed"
 
   validate_contract
   discover_target
