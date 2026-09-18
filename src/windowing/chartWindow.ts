@@ -10,7 +10,7 @@ export const DEFAULT_CHART_WINDOW_STATE: ChartWindowState = {
   interval: "15m",
 };
 
-const POPUP_FEATURES = "popup=yes,width=1440,height=960,resizable=yes,scrollbars=yes";
+const POPUP_FEATURES = "popup=yes,width=1440,height=960,resizable=yes,scrollbars=yes,noopener,noreferrer";
 
 function isSymbol(value: string | null): value is Symbol {
   return value !== null && (SYMBOLS as readonly string[]).includes(value);
@@ -34,6 +34,8 @@ export function parseChartWindowState(search: string): ChartWindowState {
 export function createChartWindowUrl(state: ChartWindowState, currentUrl: string): string {
   const url = new URL(currentUrl);
 
+  url.search = "";
+  url.hash = "";
   url.searchParams.set("symbol", state.symbol);
   url.searchParams.set("interval", state.interval);
 

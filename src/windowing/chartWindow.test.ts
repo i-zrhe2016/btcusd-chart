@@ -10,10 +10,10 @@ describe("chart window state", () => {
   it("serializes the active chart while preserving the current route", () => {
     const url = createChartWindowUrl(
       { symbol: "ETHUSD", interval: "1h" },
-      "https://chart.example/workspace?source=watchlist",
+      "https://chart.example/workspace?source=watchlist#private-state",
     );
 
-    expect(url).toBe("https://chart.example/workspace?source=watchlist&symbol=ETHUSD&interval=1h");
+    expect(url).toBe("https://chart.example/workspace?symbol=ETHUSD&interval=1h");
   });
 
   it("hydrates valid state and falls back independently for invalid parameters", () => {
@@ -32,6 +32,16 @@ describe("chart window state", () => {
       "https://chart.example/?symbol=BTCUSD&interval=5m",
       "_blank",
       expect.stringContaining("popup=yes"),
+    );
+    expect(opener).toHaveBeenCalledWith(
+      expect.anything(),
+      "_blank",
+      expect.stringContaining("noopener"),
+    );
+    expect(opener).toHaveBeenCalledWith(
+      expect.anything(),
+      "_blank",
+      expect.stringContaining("noreferrer"),
     );
     expect(focus).toHaveBeenCalledTimes(1);
   });

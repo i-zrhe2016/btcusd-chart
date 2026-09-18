@@ -22,7 +22,7 @@ import { toBinanceSymbol } from "./market-data/binanceAdapter";
 import { useChartStore } from "./stores/chartStore";
 import { INTERVALS, SYMBOLS, type WatchlistItem, type WatchlistQuote } from "./types/market";
 import type { MarketDataErrorInfo, MarketDataStatus } from "./market-data/types";
-import { openChartWindow } from "./windowing/chartWindow";
+import { openChartWindow, parseChartWindowState } from "./windowing/chartWindow";
 
 const watchlist: WatchlistItem[] = [
   { symbol: "BTCUSD", venue: "Binance spot" },
@@ -195,6 +195,24 @@ export default function App() {
     url.searchParams.set("interval", interval);
     window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
   }, [interval, symbol]);
+
+  useEffect(() => {
+    const updateFromUrl = () => {
+      const nextState = parseChartWindowState(window.location.search);
+
+      if (nextState.symbol !== symbol) {
+        setSymbol(nextState.symbol);
+      }
+
+      if (nextState.interval !== interval) {
+        setInterval(nextState.interval);
+      }
+    };
+
+    window.addEventListener("popstate", updateFromUrl);
+
+    return () => window.removeEventListener("popstate", updateFromUrl);
+  }, [interval, setInterval, setSymbol, symbol]);
 
   useEffect(() => {
     const focusSearch = (event: KeyboardEvent) => {
