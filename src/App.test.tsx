@@ -201,17 +201,6 @@ describe("App", () => {
     expect(screen.getByRole("button", { name: "1h" }).getAttribute("aria-pressed")).toBe("true");
   });
 
-  it("shows a retry action when the browser blocks a chart window", () => {
-    const openWindow = vi.spyOn(window, "open").mockReturnValue(null);
-
-    render(<App />);
-    fireEvent.click(screen.getByRole("button", { name: "Open chart in new window" }));
-
-    expect(screen.getByRole("status").textContent).toContain("Allow pop-ups");
-    fireEvent.click(screen.getByRole("button", { name: "Retry opening chart window" }));
-    expect(openWindow).toHaveBeenCalledTimes(2);
-  });
-
   it("cleans up the chart instance on unmount", () => {
     const { unmount } = render(
       <PriceChart candles={createFixtureCandles("15m")} symbol="BTCUSD" viewKey="BTCUSD:15m" />,

@@ -19,5 +19,5 @@ still use the same public Binance market data source, but this MVP does not
 coordinate cross-window state, link groups, layouts, or persistence.
 
 The action must be initiated by a user click so the browser can allow the
-popup. If the browser blocks it, the workspace shows a retry action. Allow
-popups for the chart origin before retrying.
+popup. Browser popup permissions remain browser-controlled; after allowing
+popups for the chart origin, click **New window** again if needed.

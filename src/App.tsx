@@ -111,7 +111,6 @@ export default function App() {
   const setSymbol = useChartStore((state) => state.setSymbol);
   const setInterval = useChartStore((state) => state.setInterval);
   const [watchlistQuery, setWatchlistQuery] = useState("");
-  const [windowMessage, setWindowMessage] = useState<string | null>(null);
   const urlHistoryMode = useRef<"push" | "replace">("replace");
   const market = useMarketData({ symbol, interval });
   const candles = market.candles;
@@ -175,14 +174,7 @@ export default function App() {
   const showChartMessage = !stats || market.status === "error";
 
   const handleOpenChartWindow = () => {
-    const childWindow = openChartWindow({ symbol, interval });
-
-    if (!childWindow) {
-      setWindowMessage("The chart window was blocked. Allow pop-ups and try again.");
-      return;
-    }
-
-    setWindowMessage(null);
+    openChartWindow({ symbol, interval });
   };
 
   const selectSymbol = (nextSymbol: Symbol) => {
@@ -399,16 +391,6 @@ export default function App() {
               </button>
             </div>
           </div>
-
-          {windowMessage && (
-            <div className="window-launch-status" role="status" aria-live="polite">
-              <span>{windowMessage}</span>
-              <button type="button" onClick={handleOpenChartWindow} aria-label="Retry opening chart window">
-                <RefreshCw size={13} aria-hidden="true" />
-                <span>Retry</span>
-              </button>
-            </div>
-          )}
 
           <div className="interval-row">
             <div className="interval-controls">
