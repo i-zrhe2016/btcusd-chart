@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-COMPOSE_FILE="${COMPOSE_FILE:-$ROOT_DIR/docker-compose.yml}"
+COMPOSE_FILE="$ROOT_DIR/docker-compose.yml"
 CONFIG_PATH="${DEPLOYMENT_CONFIG:-/etc/btcusd-chart/tailscale.env}"
 MODE=deploy
 DRY_RUN=0
@@ -17,6 +17,7 @@ EXPECTED_NODE_ID=""
 EXPECTED_TAILSCALE_IP=""
 SOURCE_REVISION=""
 ROLLBACK_TAG=""
+ROLLBACK_IMAGE_DIGEST=""
 SERVICE_NAME=""
 WEB_PORT=""
 HEALTH_PATH=""
@@ -25,6 +26,10 @@ WAIT_SECONDS=""
 COMPOSE_PROJECT_NAME=""
 IMAGE_NAME=""
 DEPLOY_LOCK_PATH=""
+
+ROLLBACK_IMAGE_REFERENCE=""
+REVISION_IMAGE_DIGEST=""
+REVISION_IMAGE_REFERENCE=""
 
 usage() {
   cat <<'EOF'
@@ -73,6 +78,10 @@ valid_tag() {
   [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$ ]] && [[ "$1" != latest ]]
 }
 
+valid_digest() {
+  [[ "$1" =~ ^sha256:[0-9a-f]{64}$ ]]
+}
+
 valid_path() {
   [[ "$1" == /* ]] && [[ "$1" != *'..'* ]] && [[ "$1" != *' '* ]]
 }
@@ -80,7 +89,14 @@ valid_path() {
 load_contract() {
   [[ -r "$CONFIG_PATH" ]] || die "deployment contract not readable: $CONFIG_PATH"
 
-  local line key value
+  local line key value mode mode_bits
+  local -A seen_keys=()
+
+  mode="$(stat -c '%a' -- "$CONFIG_PATH")" || die "could not inspect deployment contract permissions"
+  [[ "$mode" =~ ^[0-7]{3,4}$ ]] || die "could not determine deployment contract permissions"
+  mode_bits=$((8#$mode))
+  (( (mode_bits & 0400) != 0 && (mode_bits & 0077) == 0 )) || die "deployment contract must be owner-readable only"
+
   while IFS= read -r line || [[ -n "$line" ]]; do
     line="${line%$'\r'}"
     [[ -z "$line" || "$line" == \#* ]] && continue
@@ -96,7 +112,9 @@ load_contract() {
     fi
 
     case "$key" in
-      TARGET_ENVIRONMENT|TARGET_DESIGNATION|TARGET_HOSTNAME|EXPECTED_NODE_ID|EXPECTED_TAILSCALE_IP|SOURCE_REVISION|ROLLBACK_TAG|SERVICE_NAME|WEB_PORT|HEALTH_PATH|SMOKE_PATH|WAIT_SECONDS|COMPOSE_PROJECT_NAME|IMAGE_NAME|DEPLOY_LOCK_PATH)
+      TARGET_ENVIRONMENT|TARGET_DESIGNATION|TARGET_HOSTNAME|EXPECTED_NODE_ID|EXPECTED_TAILSCALE_IP|SOURCE_REVISION|ROLLBACK_TAG|ROLLBACK_IMAGE_DIGEST|SERVICE_NAME|WEB_PORT|HEALTH_PATH|SMOKE_PATH|WAIT_SECONDS|COMPOSE_PROJECT_NAME|IMAGE_NAME|DEPLOY_LOCK_PATH)
+        [[ -z "${seen_keys[$key]+x}" ]] || die "duplicate contract key: $key"
+        seen_keys["$key"]=1
         printf -v "$key" '%s' "$value"
         ;;
       *)
@@ -113,7 +131,7 @@ require_contract_value() {
 
 validate_contract() {
   local key
-  for key in TARGET_ENVIRONMENT TARGET_DESIGNATION TARGET_HOSTNAME EXPECTED_NODE_ID EXPECTED_TAILSCALE_IP SOURCE_REVISION ROLLBACK_TAG; do
+  for key in TARGET_ENVIRONMENT TARGET_DESIGNATION TARGET_HOSTNAME EXPECTED_NODE_ID EXPECTED_TAILSCALE_IP SOURCE_REVISION ROLLBACK_TAG ROLLBACK_IMAGE_DIGEST; do
     require_contract_value "$key"
   done
 
@@ -125,13 +143,14 @@ validate_contract() {
   valid_ipv4 "$EXPECTED_TAILSCALE_IP" || die "invalid EXPECTED_TAILSCALE_IP"
   valid_port "$WEB_PORT" || die "invalid WEB_PORT"
   valid_tag "$ROLLBACK_TAG" || die "invalid ROLLBACK_TAG"
+  valid_digest "$ROLLBACK_IMAGE_DIGEST" || die "invalid ROLLBACK_IMAGE_DIGEST"
   valid_path "$HEALTH_PATH" || die "invalid HEALTH_PATH"
   valid_path "$SMOKE_PATH" || die "invalid SMOKE_PATH"
   [[ "$WAIT_SECONDS" =~ ^[0-9]+$ ]] && ((WAIT_SECONDS >= 1 && WAIT_SECONDS <= 300)) || die "invalid WAIT_SECONDS"
   [[ "$SERVICE_NAME" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || die "invalid SERVICE_NAME"
   [[ "$COMPOSE_PROJECT_NAME" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || die "invalid COMPOSE_PROJECT_NAME"
   [[ "$IMAGE_NAME" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*(/[A-Za-z0-9][A-Za-z0-9_.-]*)?$ ]] || die "invalid IMAGE_NAME"
-  [[ "$SOURCE_REVISION" != latest ]] || die "SOURCE_REVISION cannot be latest"
+  [[ "$SOURCE_REVISION" =~ ^[0-9a-fA-F]{40}$ ]] || die "SOURCE_REVISION must be a full commit ID"
   [[ "$DEPLOY_LOCK_PATH" == /* && "$DEPLOY_LOCK_PATH" != *'..'* && "$DEPLOY_LOCK_PATH" != *' '* ]] || die "invalid DEPLOY_LOCK_PATH"
 }
 
@@ -163,11 +182,12 @@ discover_revision() {
 }
 
 compose() {
-  local image_tag="$1"
-  shift
+  local image_reference="$1" image_tag="$2"
+  shift 2
   ( \
     cd "$ROOT_DIR" && \
     IMAGE_TAG="$image_tag" \
+    IMAGE_REFERENCE="$image_reference" \
     WEB_BIND_ADDRESS="$ACTUAL_TAILSCALE_IP" \
     WEB_PORT="$WEB_PORT" \
     IMAGE_NAME="$IMAGE_NAME" \
@@ -177,11 +197,14 @@ compose() {
 }
 
 verify_image() {
-  local expected_tag="$1" container_id actual_image
-  container_id="$(compose "$expected_tag" ps -q "$SERVICE_NAME" | head -n 1)"
+  local expected_reference="$1" expected_tag="$2" expected_digest="$3"
+  local container_id actual_image actual_digest
+  container_id="$(compose "$expected_reference" "$expected_tag" ps -q "$SERVICE_NAME" | head -n 1)"
   [[ -n "$container_id" ]] || return 1
   actual_image="$(docker inspect "$container_id" --format '{{.Config.Image}}')"
-  [[ "$actual_image" == "$IMAGE_NAME:$expected_tag" ]]
+  [[ "$actual_image" == "$expected_reference" ]] || return 1
+  actual_digest="$(docker inspect "$container_id" --format '{{.Image}}')"
+  [[ "$actual_digest" == "$expected_digest" ]]
 }
 
 wait_for_service() {
@@ -223,8 +246,21 @@ release_deploy_lock() {
 
 verify_compose_image_name() {
   local rendered_image
-  rendered_image="$(compose "$REVISION_TAG" config | awk '$1 == "image:" {print $2; exit}')"
+  rendered_image="$(compose "$IMAGE_NAME:$REVISION_TAG" "$REVISION_TAG" config --images "$SERVICE_NAME" | head -n 1)"
   [[ "$rendered_image" == "$IMAGE_NAME:$REVISION_TAG" ]] || die "Compose image does not match IMAGE_NAME and revision"
+}
+
+image_digest() {
+  local image_reference="$1" digest
+  digest="$(docker image inspect "$image_reference" --format '{{.Id}}' 2>/dev/null)" || return 1
+  valid_digest "$digest" || return 1
+  printf '%s\n' "$digest"
+}
+
+verify_image_digest() {
+  local image_reference="$1" expected_digest="$2" actual_digest
+  actual_digest="$(image_digest "$image_reference")" || return 1
+  [[ "$actual_digest" == "$expected_digest" ]]
 }
 
 run_deployment() {
@@ -238,25 +274,27 @@ run_deployment() {
   fi
 
   log "building $IMAGE_NAME:$REVISION_TAG"
-  compose "$REVISION_TAG" build --pull=false "$SERVICE_NAME"
+  compose "$IMAGE_NAME:$REVISION_TAG" "$REVISION_TAG" build --pull=false "$SERVICE_NAME"
+  REVISION_IMAGE_DIGEST="$(image_digest "$IMAGE_NAME:$REVISION_TAG")" || die "built image digest is unavailable"
+  REVISION_IMAGE_REFERENCE="$IMAGE_NAME@$REVISION_IMAGE_DIGEST"
   DEPLOY_STARTED=1
   log "starting service $SERVICE_NAME"
-  compose "$REVISION_TAG" up -d --no-build "$SERVICE_NAME"
+  compose "$REVISION_IMAGE_REFERENCE" "$REVISION_TAG" up -d --no-build "$SERVICE_NAME"
   log "waiting for configured health and smoke checks"
   wait_for_service || die "post-deploy health or smoke check failed"
-  verify_image "$REVISION_TAG" || die "running image does not match the requested revision"
+  verify_image "$REVISION_IMAGE_REFERENCE" "$REVISION_TAG" "$REVISION_IMAGE_DIGEST" || die "running image does not match the requested revision"
   log "deployment verified"
   release_deploy_lock
 }
 
 rollback() {
   ROLLING_BACK=1
-  log "rolling back to $IMAGE_NAME:$ROLLBACK_TAG"
-  if ! compose "$ROLLBACK_TAG" up -d --no-build "$SERVICE_NAME"; then
+  log "rolling back to $ROLLBACK_IMAGE_REFERENCE"
+  if ! compose "$ROLLBACK_IMAGE_REFERENCE" "$ROLLBACK_TAG" up -d --no-build "$SERVICE_NAME"; then
     log "rollback command failed"
     return 1
   fi
-  if ! wait_for_service || ! verify_image "$ROLLBACK_TAG"; then
+  if ! wait_for_service || ! verify_image "$ROLLBACK_IMAGE_REFERENCE" "$ROLLBACK_TAG" "$ROLLBACK_IMAGE_DIGEST"; then
     log "rollback verification failed"
     return 1
   fi
@@ -305,6 +343,7 @@ parse_args() {
 
 main() {
   parse_args "$@"
+  require_command stat
   load_contract
 
   : "${SERVICE_NAME:=web}"
@@ -314,6 +353,7 @@ main() {
   : "${WAIT_SECONDS:=30}"
   : "${COMPOSE_PROJECT_NAME:=btcusd-chart}"
   : "${IMAGE_NAME:=btcusd-chart}"
+  : "${DEPLOY_LOCK_PATH:=/run/lock/btcusd-chart-deploy.lock}"
 
   require_command hostname
   require_command tailscale
@@ -329,8 +369,10 @@ main() {
   discover_target
   discover_revision
 
-  docker image inspect "$IMAGE_NAME:$ROLLBACK_TAG" >/dev/null 2>&1 || die "rollback image is not available: $IMAGE_NAME:$ROLLBACK_TAG"
-  compose "$REVISION_TAG" config >/dev/null || die "Compose configuration is invalid"
+  ROLLBACK_IMAGE_REFERENCE="$IMAGE_NAME@$ROLLBACK_IMAGE_DIGEST"
+  verify_image_digest "$IMAGE_NAME:$ROLLBACK_TAG" "$ROLLBACK_IMAGE_DIGEST" || die "rollback tag does not match ROLLBACK_IMAGE_DIGEST"
+  verify_image_digest "$ROLLBACK_IMAGE_REFERENCE" "$ROLLBACK_IMAGE_DIGEST" || die "rollback digest reference is not available: $ROLLBACK_IMAGE_REFERENCE"
+  compose "$IMAGE_NAME:$REVISION_TAG" "$REVISION_TAG" config >/dev/null || die "Compose configuration is invalid"
   verify_compose_image_name
 
   log "target=$TARGET_HOSTNAME address=$ACTUAL_TAILSCALE_IP port=$WEB_PORT revision=$REVISION_TAG rollback=$ROLLBACK_TAG"

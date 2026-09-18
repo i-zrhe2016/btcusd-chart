@@ -8,6 +8,14 @@ FAKE_BIN="$TMP_DIR/bin"
 STATE_DIR="$TMP_DIR/state"
 mkdir -p "$FAKE_BIN" "$STATE_DIR"
 
+TEST_SOURCE_REVISION=0123456789abcdef0123456789abcdef01234567
+TEST_ROLLBACK_DIGEST="sha256:$(printf '1%.0s' {1..64})"
+TEST_REVISION_DIGEST="sha256:$(printf '2%.0s' {1..64})"
+export FAKE_SOURCE_REVISION="$TEST_SOURCE_REVISION"
+export FAKE_ROLLBACK_DIGEST="$TEST_ROLLBACK_DIGEST"
+export FAKE_REVISION_DIGEST="$TEST_REVISION_DIGEST"
+export FAKE_EXPECTED_COMPOSE_FILE="$ROOT_DIR/docker-compose.yml"
+
 cleanup() {
   rm -rf "$TMP_DIR"
 }
@@ -76,11 +84,16 @@ EOF
 
 cat > "$FAKE_BIN/git" <<'EOF'
 #!/usr/bin/env bash
+source_revision="${FAKE_SOURCE_REVISION:?}"
 case "$*" in
+  *'status --porcelain'*)
+    [[ "${FAKE_DIRTY:-0}" == 1 ]] && printf ' M file\n'
+    exit 0
+    ;;
   *'rev-parse --show-toplevel'*) printf '%s\n' "$PWD" ;;
+  *"rev-parse ${source_revision}^{commit}"*) printf '%s\n' "$source_revision" ;;
   *'rev-parse --short=12 HEAD'*) printf 'test-commit\n' ;;
-  *'rev-parse HEAD'*) printf 'test-commit\n' ;;
-  *'rev-parse test-commit^{commit}'*) printf 'test-commit\n' ;;
+  *'rev-parse HEAD'*) printf '%s\n' "$source_revision" ;;
   *) exit 1 ;;
 esac
 EOF
@@ -88,15 +101,32 @@ EOF
 cat > "$FAKE_BIN/docker" <<'EOF'
 #!/usr/bin/env bash
 set -Eeuo pipefail
-state_file="$FAKE_STATE_DIR/running-tag"
+state_file="$FAKE_STATE_DIR/running-ref"
 if [[ "$1" == image && "$2" == inspect ]]; then
-  [[ "$3" == btcusd-chart:rollback-tag ]] || exit 1
-  [[ "${FAKE_MISSING_ROLLBACK:-0}" == 1 ]] && exit 1
+  [[ "$4" == --format && "$5" == "{{.Id}}" ]] || exit 1
+  if [[ "${FAKE_MISSING_ROLLBACK:-0}" == 1 && ( "$3" == btcusd-chart:rollback-tag || "$3" == btcusd-chart@* ) ]]; then
+    exit 1
+  fi
+  case "$3" in
+    btcusd-chart:rollback-tag|btcusd-chart@*) printf '%s\n' "$FAKE_ROLLBACK_DIGEST" ;;
+    btcusd-chart:test-commit) printf '%s\n' "$FAKE_REVISION_DIGEST" ;;
+    *) exit 1 ;;
+  esac
   exit 0
 fi
 if [[ "$1" == inspect ]]; then
-  [[ "$2" == fake-container && "$3" == --format && "$4" == "{{.Config.Image}}" ]] || exit 1
-  printf 'btcusd-chart:%s\n' "$(cat "$state_file")"
+  [[ "$2" == fake-container && "$3" == --format ]] || exit 1
+  case "$4" in
+    "{{.Config.Image}}") cat "$state_file" ;;
+    "{{.Image}}")
+      if [[ "$(cat "$state_file")" == *"@$FAKE_ROLLBACK_DIGEST" ]]; then
+        printf '%s\n' "$FAKE_ROLLBACK_DIGEST"
+      else
+        printf '%s\n' "$FAKE_REVISION_DIGEST"
+      fi
+      ;;
+    *) exit 1 ;;
+  esac
   exit 0
 fi
 if [[ "$1" != compose ]]; then
@@ -104,14 +134,20 @@ if [[ "$1" != compose ]]; then
 fi
 shift
 case " $* " in
+  *' config --images web '*)
+    [[ "$*" == *"-f $FAKE_EXPECTED_COMPOSE_FILE"* ]] || exit 1
+    printf '%s\n' "$IMAGE_REFERENCE"
+    printf 'config --images web %s\n' "$IMAGE_REFERENCE" >> "$FAKE_STATE_DIR/docker.log"
+    exit 0
+    ;;
   *' config '*)
+    [[ "$*" == *"-f $FAKE_EXPECTED_COMPOSE_FILE"* ]] || exit 1
     [[ "$IMAGE_TAG" == test-commit && "$IMAGE_NAME" == btcusd-chart && "$WEB_BIND_ADDRESS" == 192.0.2.2 && "$WEB_PORT" == 8081 ]] || exit 1
-    printf 'image: %s:%s\n' "$IMAGE_NAME" "$IMAGE_TAG"
     printf 'config %s\n' "$*" >> "$FAKE_STATE_DIR/docker.log"
     exit 0
     ;;
   *' build '*) printf 'build %s\n' "$*" >> "$FAKE_STATE_DIR/docker.log"; exit 0 ;;
-  *' up '*) printf '%s\n' "$IMAGE_TAG" > "$state_file"; printf 'up %s\n' "$*" >> "$FAKE_STATE_DIR/docker.log"; exit 0 ;;
+  *' up '*) printf '%s\n' "$IMAGE_REFERENCE" > "$state_file"; printf 'up %s\n' "$*" >> "$FAKE_STATE_DIR/docker.log"; exit 0 ;;
   *' ps -q '*) printf 'fake-container\n'; exit 0 ;;
   *) exit 1 ;;
 esac
@@ -122,7 +158,7 @@ cat > "$FAKE_BIN/curl" <<'EOF'
 url="${@: -1}"
 printf '%s\n' "$url" >> "$FAKE_STATE_DIR/curl.log"
 [[ "$url" == http://192.0.2.2:8081/health || "$url" == http://192.0.2.2:8081/workspace ]] || exit 1
-if [[ "${FAKE_FAIL_NEW:-0}" == 1 && "$(cat "$FAKE_STATE_DIR/running-tag" 2>/dev/null || true)" != rollback-tag ]]; then
+if [[ "${FAKE_FAIL_NEW:-0}" == 1 && "$(cat "$FAKE_STATE_DIR/running-ref" 2>/dev/null || true)" != "btcusd-chart@$FAKE_ROLLBACK_DIGEST" ]]; then
   exit 1
 fi
 exit 0
@@ -137,8 +173,9 @@ TARGET_DESIGNATION=tailscale-hardened
 TARGET_HOSTNAME=test-host
 EXPECTED_NODE_ID=test-node
 EXPECTED_TAILSCALE_IP=192.0.2.2
-SOURCE_REVISION=test-commit
+SOURCE_REVISION=SOURCE_REVISION_PLACEHOLDER
 ROLLBACK_TAG=rollback-tag
+ROLLBACK_IMAGE_DIGEST=ROLLBACK_DIGEST_PLACEHOLDER
 SERVICE_NAME=web
 WEB_PORT=8081
 HEALTH_PATH=/health
@@ -148,7 +185,12 @@ COMPOSE_PROJECT_NAME=btcusd-chart
 IMAGE_NAME=btcusd-chart
 DEPLOY_LOCK_PATH=LOCK_PATH_PLACEHOLDER
 EOF
-  sed -i "s#DEPLOY_LOCK_PATH=LOCK_PATH_PLACEHOLDER#DEPLOY_LOCK_PATH=$STATE_DIR/deploy.lock#" "$1"
+  sed -i \
+    -e "s#SOURCE_REVISION=SOURCE_REVISION_PLACEHOLDER#SOURCE_REVISION=$TEST_SOURCE_REVISION#" \
+    -e "s#ROLLBACK_IMAGE_DIGEST=ROLLBACK_DIGEST_PLACEHOLDER#ROLLBACK_IMAGE_DIGEST=$TEST_ROLLBACK_DIGEST#" \
+    -e "s#DEPLOY_LOCK_PATH=LOCK_PATH_PLACEHOLDER#DEPLOY_LOCK_PATH=$STATE_DIR/deploy.lock#" \
+    "$1"
+  chmod 600 "$1"
 }
 
 bash -n "$SCRIPT"
@@ -158,8 +200,30 @@ cp "$ROOT_DIR/deploy/tailscale.env.example" "$TMP_DIR/example.env"
 assert_failure env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" bash "$SCRIPT" --config "$TMP_DIR/example.env" --dry-run
 
 write_contract "$TMP_DIR/valid.env"
+cp "$TMP_DIR/valid.env" "$TMP_DIR/insecure.env"
+chmod 644 "$TMP_DIR/insecure.env"
+assert_failure env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" bash "$SCRIPT" --config "$TMP_DIR/insecure.env" --dry-run
+
+cp "$TMP_DIR/valid.env" "$TMP_DIR/duplicate.env"
+printf 'TARGET_ENVIRONMENT=production\n' >> "$TMP_DIR/duplicate.env"
+assert_failure env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" bash "$SCRIPT" --config "$TMP_DIR/duplicate.env" --dry-run
+
+cp "$TMP_DIR/valid.env" "$TMP_DIR/mutable.env"
+sed -i 's/^SOURCE_REVISION=.*/SOURCE_REVISION=main/' "$TMP_DIR/mutable.env"
+assert_failure env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" bash "$SCRIPT" --config "$TMP_DIR/mutable.env" --dry-run
+
+cp "$TMP_DIR/valid.env" "$TMP_DIR/default-lock.env"
+sed -i '/^DEPLOY_LOCK_PATH=/d' "$TMP_DIR/default-lock.env"
+assert_success env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" bash "$SCRIPT" --config "$TMP_DIR/default-lock.env" --dry-run
+
+touch "$TMP_DIR/ignored-compose.yml"
+env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" COMPOSE_FILE="$TMP_DIR/ignored-compose.yml" bash "$SCRIPT" --config "$TMP_DIR/valid.env" --dry-run >/dev/null
+
+assert_failure env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" FAKE_DIRTY=1 bash "$SCRIPT" --config "$TMP_DIR/valid.env" --dry-run
+
 env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" bash "$SCRIPT" --config "$TMP_DIR/valid.env" --dry-run >/dev/null
 grep -F 'config' "$STATE_DIR/docker.log" >/dev/null || fail "dry-run did not validate Compose configuration"
+grep -F 'config --images web' "$STATE_DIR/docker.log" >/dev/null || fail "dry-run did not validate the configured service image"
 ! grep -E 'build|up ' "$STATE_DIR/docker.log" >/dev/null || fail "dry-run attempted a service mutation"
 
 assert_failure env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" FAKE_MISSING_ROLLBACK=1 bash "$SCRIPT" --config "$TMP_DIR/valid.env" --dry-run
@@ -168,19 +232,19 @@ for mode in malformed offline bad-node bad-host bad-ip; do
   assert_failure env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" FAKE_TARGET_MODE="$mode" bash "$SCRIPT" --config "$TMP_DIR/valid.env" --dry-run
 done
 
-printf 'rollback-tag\n' > "$STATE_DIR/running-tag"
+printf 'btcusd-chart@%s\n' "$TEST_ROLLBACK_DIGEST" > "$STATE_DIR/running-ref"
 env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" bash "$SCRIPT" --config "$TMP_DIR/valid.env" >/dev/null
-[[ "$(cat "$STATE_DIR/running-tag")" == test-commit ]] || fail "successful deploy did not select the new revision"
+[[ "$(cat "$STATE_DIR/running-ref")" == "btcusd-chart@$TEST_REVISION_DIGEST" ]] || fail "successful deploy did not select the new revision digest"
 grep -F '192.0.2.2:8081/health' "$STATE_DIR/curl.log" >/dev/null || fail "health path was not checked"
 grep -F '192.0.2.2:8081/workspace' "$STATE_DIR/curl.log" >/dev/null || fail "smoke path was not checked"
 
 env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" bash "$SCRIPT" --config "$TMP_DIR/valid.env" --rollback >/dev/null
-[[ "$(cat "$STATE_DIR/running-tag")" == rollback-tag ]] || fail "explicit rollback did not select the rollback image"
+[[ "$(cat "$STATE_DIR/running-ref")" == "btcusd-chart@$TEST_ROLLBACK_DIGEST" ]] || fail "explicit rollback did not select the rollback digest"
 
-printf 'rollback-tag\n' > "$STATE_DIR/running-tag"
+printf 'btcusd-chart@%s\n' "$TEST_ROLLBACK_DIGEST" > "$STATE_DIR/running-ref"
 if env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" FAKE_FAIL_NEW=1 bash "$SCRIPT" --config "$TMP_DIR/valid.env" >/dev/null 2>"$TMP_DIR/rollback.stderr"; then
   fail "failed post-deploy verification unexpectedly succeeded"
 fi
-[[ "$(cat "$STATE_DIR/running-tag")" == rollback-tag ]] || fail "failed deployment did not restore the rollback image"
+[[ "$(cat "$STATE_DIR/running-ref")" == "btcusd-chart@$TEST_ROLLBACK_DIGEST" ]] || fail "failed deployment did not restore the rollback digest"
 
 printf 'tailscale deployment tests passed\n'

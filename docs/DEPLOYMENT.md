@@ -61,11 +61,13 @@ change the container.
 
 The contract is external runtime configuration and must not be committed with
 real host values or credentials. Start from
-`deploy/tailscale.env.example` and keep the completed file owner-readable, for
-example at `/etc/btcusd-chart/tailscale.env`.
+`deploy/tailscale.env.example` and keep the completed file owner-readable only
+(`chmod 600` or stricter), for example at
+`/etc/btcusd-chart/tailscale.env`.
 
 The command must run on the approved target checkout with Docker Compose v2,
-`tailscale`, `jq`, `git`, `curl`, `hostname`, `head`, `sleep`, and `flock`
+`tailscale`, `jq`, `git`, `curl`, `hostname`, `head`, `sleep`, `flock`, and
+`stat`
 available. The operating-system hostname and the Tailscale hostname must both
 match `TARGET_HOSTNAME`. The checkout must be clean and its `HEAD` must match
 `SOURCE_REVISION`.
@@ -77,8 +79,11 @@ Required values include:
   it against the contract; it never uses a caller-supplied address as the
   destination.
 - `TARGET_DESIGNATION=tailscale-hardened` and the target environment.
-- `SOURCE_REVISION` for the checked-out immutable Git revision.
-- `ROLLBACK_TAG` for an already available known-good image.
+- `SOURCE_REVISION` for the checked-out immutable 40-character Git commit ID.
+- `ROLLBACK_TAG` and `ROLLBACK_IMAGE_DIGEST` for an already available
+  known-good image. The digest must match the local image content digest; it
+  can be obtained on the target with
+  `docker image inspect <image>:<tag> --format '{{.Id}}'`.
 - `WEB_PORT`, health/smoke paths, and the Compose project/service names. The
   optional service, port, path, wait, project, image, and lock settings use
   the defaults shown in `deploy/tailscale.env.example` when omitted.
@@ -103,9 +108,10 @@ bash deploy/tailscale-compose-deploy.sh \
   --config /etc/btcusd-chart/tailscale.env
 ```
 
-The command builds an image tagged with the checked-out revision, updates only
-the configured Compose service, checks the configured health path (default
-`/health`) and smoke path, and retains the previous image. A failed
+The command builds an image tagged with the checked-out revision, captures its
+content digest, starts that exact digest, updates only the configured Compose
+service, checks the configured health path (default `/health`) and smoke path,
+and retains the previous image. A failed
 post-deploy check attempts one rollback and verifies the rollback health before
 returning failure. The entrypoint also holds its local deployment lock across
 build, update, verification, and rollback so two operator invocations cannot
@@ -114,8 +120,9 @@ interleave.
 Run the documented rollback explicitly when required. Rollback still requires
 the external contract, the approved target identity, the required command-line
 tools, a clean checkout whose `HEAD` matches `SOURCE_REVISION`, a valid Compose
-configuration, and the available `ROLLBACK_TAG`; it is not a command that can
-be run safely from an arbitrary checkout:
+configuration, and the matching `ROLLBACK_TAG` plus
+`ROLLBACK_IMAGE_DIGEST`; it is not a command that can be run safely from an
+arbitrary checkout:
 
 ```bash
 bash deploy/tailscale-compose-deploy.sh \
