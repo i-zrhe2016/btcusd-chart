@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import PriceChart from "./components/chart/PriceChart";
@@ -201,15 +201,17 @@ describe("App", () => {
     expect(screen.getByRole("button", { name: "1h" }).getAttribute("aria-pressed")).toBe("true");
   });
 
-  it("shows a retry action when the browser blocks a chart window", async () => {
-    const openWindow = vi.spyOn(window, "open").mockReturnValue(null);
+  it("shows a retry action when the browser opener reports an error", () => {
+    const openWindow = vi.spyOn(window, "open").mockImplementation(() => {
+      throw new Error("popup unavailable");
+    });
 
     render(<App />);
     fireEvent.click(screen.getByRole("button", { name: "Open chart in new window" }));
 
-    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("Allow pop-ups"), { timeout: 3_000 });
+    expect(screen.getByRole("status").textContent).toContain("Allow pop-ups");
     fireEvent.click(screen.getByRole("button", { name: "Retry opening chart window" }));
-    await waitFor(() => expect(openWindow).toHaveBeenCalledTimes(2));
+    expect(openWindow).toHaveBeenCalledTimes(2);
   });
 
   it("cleans up the chart instance on unmount", () => {

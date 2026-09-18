@@ -2,10 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import {
   createChartWindowUrl,
   DEFAULT_CHART_WINDOW_STATE,
-  getChartWindowLaunchId,
   openChartWindow,
   parseChartWindowState,
-  type ChartWindowReadyChannelFactory,
 } from "./chartWindow";
 
 describe("chart window state", () => {
@@ -32,28 +30,17 @@ describe("chart window state", () => {
     });
     expect(parseChartWindowState("?symbol=%45THUSD&interval=%31h")).toEqual({ symbol: "ETHUSD", interval: "1h" });
     expect(parseChartWindowState("?symbol=%E0%A4%A&interval=%")).toEqual(DEFAULT_CHART_WINDOW_STATE);
-    expect(getChartWindowLaunchId("?chartWindowLaunch=launch-123")).toBe("launch-123");
-    expect(getChartWindowLaunchId("?chartWindowLaunch=%E0%A4%A")).toBeNull();
   });
 
-  it("opens and focuses a new browser window with the encoded chart state", async () => {
+  it("opens and focuses a new browser window with the encoded chart state", () => {
     const focus = vi.fn();
     const childWindow = { closed: false, focus } as unknown as Window;
     const opener = vi.fn(() => childWindow);
-    let onReady: (event: MessageEvent) => void = () => undefined;
-    const readyChannelFactory: ChartWindowReadyChannelFactory = () => ({
-      addEventListener: (_type, listener) => {
-        onReady = listener;
-      },
-      removeEventListener: vi.fn(),
-      close: vi.fn(),
-    });
 
     const launch = openChartWindow(
       { symbol: "BTCUSD", interval: "5m" },
       opener,
       "https://chart.example/workspace?tenant=demo#dashboard",
-      readyChannelFactory,
     );
 
     expect(launch?.childWindow).toBe(childWindow);
@@ -63,31 +50,22 @@ describe("chart window state", () => {
       expect.stringContaining("popup=yes"),
     );
     expect(opener).toHaveBeenCalledWith(
-      expect.stringContaining("chartWindowLaunch="),
-      "_blank",
-      expect.stringContaining("noopener"),
-    );
-    expect(opener).toHaveBeenCalledWith(
       expect.anything(),
       "_blank",
       expect.stringContaining("noreferrer"),
     );
-    onReady({ data: "chart-window-ready" } as MessageEvent);
-    await expect(launch?.ready).resolves.toBe(true);
     expect(focus).toHaveBeenCalledTimes(1);
   });
 
-  it("reports a blocked popup when no child window is available", async () => {
+  it("keeps a null popup handle when the browser blocks the popup", () => {
     const opener = vi.fn(() => null);
     const launch = openChartWindow(
       { symbol: "BTCUSD", interval: "15m" },
       opener,
       "https://chart.example/",
-      null,
     );
 
     expect(launch?.childWindow).toBeNull();
-    await expect(launch?.ready).resolves.toBeNull();
   });
 
   it("returns the child window when focusing it fails", () => {
@@ -102,7 +80,6 @@ describe("chart window state", () => {
       { symbol: "BTCUSD", interval: "15m" },
       vi.fn(() => childWindow),
       "https://chart.example/",
-      null,
     )?.childWindow).toBe(childWindow);
   });
 });
