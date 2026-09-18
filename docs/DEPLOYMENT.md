@@ -73,7 +73,8 @@ available. The operating-system hostname and the Tailscale hostname must both
 match `TARGET_HOSTNAME`. The checkout must be clean and its `HEAD` must match
 `SOURCE_REVISION`. The deployment lock uses the parent directory of
 `DEPLOY_LOCK_PATH`; that directory must be owned by the current user and must
-not be group/world-writable unless it is a sticky directory.
+not be group/world-writable. Create the default directory before first use:
+`install -d -m 755 /run/btcusd-chart`.
 
 Required values include:
 
@@ -112,9 +113,10 @@ bash deploy/tailscale-compose-deploy.sh \
 ```
 
 The command builds an image tagged with the checked-out revision, captures its
-local content-addressed image ID, starts that exact image ID, updates only the configured Compose
-service, checks the configured health path (default `/health`) and smoke path,
-and retains the previous image. A failed
+local content-addressed image ID, starts the controlled revision tag, and
+checks that the running container still has that captured image ID. It updates
+only the configured Compose service, checks the configured health path (default
+`/health`) and smoke path, and retains the previous image. A failed
 post-deploy check attempts one rollback and verifies the rollback health before
 returning failure. The entrypoint also holds its local deployment lock across
 build, update, verification, and rollback so two operator invocations cannot

@@ -95,15 +95,24 @@ validate_trusted_directory() {
   directory_type="$(stat -c '%F' -- "$directory")"
   [[ "$directory_type" == directory && "$directory_owner" == "$EUID" ]] || die "$label directory must be owned by the current user"
   directory_bits=$((8#$directory_mode))
-  (( (directory_bits & 0022) == 0 || (directory_bits & 01000) != 0 )) || die "$label directory must not be group- or world-writable unless sticky"
+  (( (directory_bits & 0022) == 0 )) || die "$label directory must not be group- or world-writable"
 }
 
 validate_lock_path() {
-  local lock_dir lock_name
+  local lock_dir lock_name lock_owner lock_mode lock_type lock_bits
   lock_dir="${DEPLOY_LOCK_PATH%/*}"
   lock_name="${DEPLOY_LOCK_PATH##*/}"
   [[ "$lock_name" =~ ^[A-Za-z0-9_.-]+$ ]] || die "invalid deployment lock filename"
   validate_trusted_directory "$lock_dir" "deployment lock"
+  [[ ! -L "$DEPLOY_LOCK_PATH" ]] || die "deployment lock path must not be a symlink"
+  if [[ -e "$DEPLOY_LOCK_PATH" ]]; then
+    lock_owner="$(stat -c '%u' -- "$DEPLOY_LOCK_PATH")"
+    lock_mode="$(stat -c '%a' -- "$DEPLOY_LOCK_PATH")"
+    lock_type="$(stat -c '%F' -- "$DEPLOY_LOCK_PATH")"
+    [[ ( "$lock_type" == "regular file" || "$lock_type" == "regular empty file" ) && "$lock_owner" == "$EUID" ]] || die "deployment lock file must be owned by the current user"
+    lock_bits=$((8#$lock_mode))
+    (( (lock_bits & 0077) == 0 )) || die "deployment lock file must be owner-readable only"
+  fi
 }
 
 load_contract() {
@@ -227,14 +236,13 @@ compose() {
 }
 
 verify_image() {
-  local expected_reference="$1" expected_tag="$2"
-  local container_id actual_image actual_image_id expected_image_id
+  local expected_reference="$1" expected_tag="$2" expected_image_id="$3"
+  local container_id actual_image actual_image_id
   container_id="$(compose "$expected_reference" "$expected_tag" ps -q "$SERVICE_NAME" | head -n 1)"
   [[ -n "$container_id" ]] || return 1
   actual_image="$(docker inspect "$container_id" --format '{{.Config.Image}}')"
   [[ "$actual_image" == "$expected_reference" ]] || return 1
   actual_image_id="$(docker inspect "$container_id" --format '{{.Image}}')"
-  expected_image_id="$(image_id "$expected_reference")" || return 1
   [[ "$actual_image_id" == "$expected_image_id" ]]
 }
 
@@ -260,10 +268,13 @@ wait_for_service() {
 }
 
 acquire_deploy_lock() {
-  local lock_dir
+  local previous_umask
   validate_lock_path
-  lock_dir="${DEPLOY_LOCK_PATH%/*}"
-  exec 9<"$lock_dir"
+  previous_umask="$(umask)"
+  umask 077
+  exec 9>>"$DEPLOY_LOCK_PATH"
+  umask "$previous_umask"
+  validate_lock_path
   flock -n 9 || die "another deployment is already active"
   LOCK_HELD=1
 }
@@ -307,13 +318,13 @@ run_deployment() {
   log "building $IMAGE_NAME:$REVISION_TAG"
   compose "$IMAGE_NAME:$REVISION_TAG" "$REVISION_TAG" build --pull=false "$SERVICE_NAME"
   REVISION_IMAGE_DIGEST="$(image_id "$IMAGE_NAME:$REVISION_TAG")" || die "built image ID is unavailable"
-  REVISION_IMAGE_REFERENCE="$REVISION_IMAGE_DIGEST"
+  REVISION_IMAGE_REFERENCE="$IMAGE_NAME:$REVISION_TAG"
   DEPLOY_STARTED=1
   log "starting service $SERVICE_NAME"
   compose "$REVISION_IMAGE_REFERENCE" "$REVISION_TAG" up -d --no-build "$SERVICE_NAME"
   log "waiting for configured health and smoke checks"
   wait_for_service || die "post-deploy health or smoke check failed"
-  verify_image "$REVISION_IMAGE_REFERENCE" "$REVISION_TAG" || die "running image does not match the requested revision"
+  verify_image "$REVISION_IMAGE_REFERENCE" "$REVISION_TAG" "$REVISION_IMAGE_DIGEST" || die "running image does not match the requested revision"
   log "deployment verified"
   release_deploy_lock
 }
@@ -325,7 +336,7 @@ rollback() {
     log "rollback command failed"
     return 1
   fi
-  if ! wait_for_service || ! verify_image "$ROLLBACK_IMAGE_REFERENCE" "$ROLLBACK_TAG"; then
+  if ! wait_for_service || ! verify_image "$ROLLBACK_IMAGE_REFERENCE" "$ROLLBACK_TAG" "$ROLLBACK_IMAGE_DIGEST"; then
     log "rollback verification failed"
     return 1
   fi
@@ -384,7 +395,7 @@ main() {
   : "${WAIT_SECONDS:=30}"
   : "${COMPOSE_PROJECT_NAME:=btcusd-chart}"
   : "${IMAGE_NAME:=btcusd-chart}"
-  : "${DEPLOY_LOCK_PATH:=/run/lock/btcusd-chart-deploy.lock}"
+  : "${DEPLOY_LOCK_PATH:=/run/btcusd-chart/btcusd-chart-deploy.lock}"
 
   require_command hostname
   require_command tailscale
@@ -400,9 +411,8 @@ main() {
   discover_target
   discover_revision
 
-  ROLLBACK_IMAGE_REFERENCE="$ROLLBACK_IMAGE_DIGEST"
+  ROLLBACK_IMAGE_REFERENCE="$IMAGE_NAME:$ROLLBACK_TAG"
   verify_image_id "$IMAGE_NAME:$ROLLBACK_TAG" "$ROLLBACK_IMAGE_DIGEST" || die "rollback tag does not match ROLLBACK_IMAGE_DIGEST"
-  verify_image_id "$ROLLBACK_IMAGE_REFERENCE" "$ROLLBACK_IMAGE_DIGEST" || die "rollback image ID is not available: $ROLLBACK_IMAGE_REFERENCE"
   compose "$IMAGE_NAME:$REVISION_TAG" "$REVISION_TAG" config >/dev/null || die "Compose configuration is invalid"
   verify_compose_image_name
 
