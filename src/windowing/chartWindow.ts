@@ -48,15 +48,11 @@ export type ChartWindowOpener = (
   features?: string,
 ) => Window | null;
 
-export interface ChartWindowLaunch {
-  childWindow: Window | null;
-}
-
 export function openChartWindow(
   state: ChartWindowState,
   opener?: ChartWindowOpener,
   currentUrl?: string,
-): ChartWindowLaunch | null {
+): Window | null {
   const browserOpener = opener ?? (typeof window === "undefined" ? null : window.open.bind(window));
   const browserUrl = currentUrl ?? (typeof window === "undefined" ? null : window.location.href);
 
@@ -86,7 +82,5 @@ export function openChartWindow(
     }
   }
 
-  return {
-    childWindow,
-  };
+  return childWindow;
 }

@@ -43,7 +43,7 @@ describe("chart window state", () => {
       "https://chart.example/workspace?tenant=demo#dashboard",
     );
 
-    expect(launch?.childWindow).toBe(childWindow);
+    expect(launch).toBe(childWindow);
     expect(opener).toHaveBeenCalledWith(
       expect.stringContaining("https://chart.example/workspace?symbol=BTCUSD&interval=5m"),
       "_blank",
@@ -65,7 +65,7 @@ describe("chart window state", () => {
       "https://chart.example/",
     );
 
-    expect(launch?.childWindow).toBeNull();
+    expect(launch).toBeNull();
   });
 
   it("returns the child window when focusing it fails", () => {
@@ -80,6 +80,6 @@ describe("chart window state", () => {
       { symbol: "BTCUSD", interval: "15m" },
       vi.fn(() => childWindow),
       "https://chart.example/",
-    )?.childWindow).toBe(childWindow);
+    )).toBe(childWindow);
   });
 });

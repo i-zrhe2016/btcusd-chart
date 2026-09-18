@@ -175,9 +175,9 @@ export default function App() {
   const showChartMessage = !stats || market.status === "error";
 
   const handleOpenChartWindow = () => {
-    const launch = openChartWindow({ symbol, interval });
+    const childWindow = openChartWindow({ symbol, interval });
 
-    if (!launch) {
+    if (!childWindow) {
       setWindowMessage("The chart window was blocked. Allow pop-ups and try again.");
       return;
     }

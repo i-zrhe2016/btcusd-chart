@@ -201,10 +201,8 @@ describe("App", () => {
     expect(screen.getByRole("button", { name: "1h" }).getAttribute("aria-pressed")).toBe("true");
   });
 
-  it("shows a retry action when the browser opener reports an error", () => {
-    const openWindow = vi.spyOn(window, "open").mockImplementation(() => {
-      throw new Error("popup unavailable");
-    });
+  it("shows a retry action when the browser blocks a chart window", () => {
+    const openWindow = vi.spyOn(window, "open").mockReturnValue(null);
 
     render(<App />);
     fireEvent.click(screen.getByRole("button", { name: "Open chart in new window" }));
