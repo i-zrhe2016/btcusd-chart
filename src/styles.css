@@ -482,6 +482,35 @@ input:focus-visible {
   gap: 5px;
 }
 
+.window-launch-status {
+  display: flex;
+  align-items: center;
+  align-self: flex-end;
+  gap: 8px;
+  max-width: 360px;
+  color: var(--coral);
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+.window-launch-status button {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 4px;
+  padding: 2px 5px;
+  border: 1px solid rgba(255, 139, 111, 0.42);
+  border-radius: 3px;
+  color: var(--coral);
+  background: transparent;
+  cursor: pointer;
+  font-size: 10px;
+}
+
+.window-launch-status button:hover {
+  background: rgba(255, 139, 111, 0.1);
+}
+
 .tool-button {
   gap: 7px;
   height: 30px;
@@ -904,6 +933,11 @@ input:focus-visible {
 
   .workspace-toolbar {
     align-items: flex-start;
+  }
+
+  .window-launch-status {
+    align-self: flex-start;
+    max-width: 100%;
   }
 
   .instrument-line h1 {

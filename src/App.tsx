@@ -4,6 +4,7 @@ import {
   Bell,
   ChevronDown,
   Clock3,
+  ExternalLink,
   LoaderCircle,
   Menu,
   Plus,
@@ -21,6 +22,7 @@ import { toBinanceSymbol } from "./market-data/binanceAdapter";
 import { useChartStore } from "./stores/chartStore";
 import { INTERVALS, SYMBOLS, type WatchlistItem, type WatchlistQuote } from "./types/market";
 import type { MarketDataErrorInfo, MarketDataStatus } from "./market-data/types";
+import { openChartWindow } from "./windowing/chartWindow";
 
 const watchlist: WatchlistItem[] = [
   { symbol: "BTCUSD", venue: "Binance spot" },
@@ -109,6 +111,7 @@ export default function App() {
   const setSymbol = useChartStore((state) => state.setSymbol);
   const setInterval = useChartStore((state) => state.setInterval);
   const [watchlistQuery, setWatchlistQuery] = useState("");
+  const [windowMessage, setWindowMessage] = useState<string | null>(null);
   const market = useMarketData({ symbol, interval });
   const candles = market.candles;
   const watchlistQuotes = useMemo<WatchlistQuote[]>(() => watchlist.map((item) => {
@@ -169,6 +172,17 @@ export default function App() {
   const currentStatusLabel = statusLabel(market.status);
   const currentStatusMessage = statusMessage(market.status, market.error);
   const showChartMessage = !stats || market.status === "error";
+
+  const handleOpenChartWindow = () => {
+    const childWindow = openChartWindow({ symbol, interval });
+
+    if (!childWindow) {
+      setWindowMessage("The chart window was blocked. Allow pop-ups and try again.");
+      return;
+    }
+
+    setWindowMessage(null);
+  };
 
   useEffect(() => {
     document.title = `${symbol} Chart`;
@@ -315,11 +329,31 @@ export default function App() {
                 <Settings2 size={15} />
                 <span>Chart</span>
               </button>
+              <button
+                className="tool-button"
+                type="button"
+                title="Open chart in new window"
+                aria-label="Open chart in new window"
+                onClick={handleOpenChartWindow}
+              >
+                <ExternalLink size={15} />
+                <span>New window</span>
+              </button>
               <button className="icon-button subtle" type="button" title="Not available yet" aria-label="More chart actions" disabled>
                 <Menu size={17} />
               </button>
             </div>
           </div>
+
+          {windowMessage && (
+            <div className="window-launch-status" role="status" aria-live="polite">
+              <span>{windowMessage}</span>
+              <button type="button" onClick={handleOpenChartWindow} aria-label="Retry opening chart window">
+                <RefreshCw size={13} aria-hidden="true" />
+                <span>Retry</span>
+              </button>
+            </div>
+          )}
 
           <div className="interval-row">
             <div className="interval-controls">

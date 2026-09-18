@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import PriceChart from "./components/chart/PriceChart";
 import { createFixtureCandles } from "./data/fixtureCandles";
@@ -87,6 +87,10 @@ describe("App", () => {
     marketDataMock.candlesBySymbol.BTCUSD[1].volume = 4_500;
   });
 
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("updates the interval, filters the watchlist, and switches symbols", () => {
     render(<App />);
 
@@ -155,6 +159,32 @@ describe("App", () => {
 
     expect(change).not.toBeNull();
     expect(change?.textContent?.trim().startsWith("-")).toBe(true);
+  });
+
+  it("opens the active chart in a new browser window", () => {
+    const focus = vi.fn();
+    const openWindow = vi.spyOn(window, "open").mockReturnValue({ closed: false, focus } as unknown as Window);
+
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "Open chart in new window" }));
+
+    expect(openWindow).toHaveBeenCalledWith(
+      expect.stringContaining("symbol=BTCUSD"),
+      "_blank",
+      expect.stringContaining("popup=yes"),
+    );
+    expect(focus).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows a retry action when the browser blocks a chart window", () => {
+    const openWindow = vi.spyOn(window, "open").mockReturnValue(null);
+
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "Open chart in new window" }));
+
+    expect(screen.getByRole("status").textContent).toContain("Allow pop-ups");
+    fireEvent.click(screen.getByRole("button", { name: "Retry opening chart window" }));
+    expect(openWindow).toHaveBeenCalledTimes(2);
   });
 
   it("cleans up the chart instance on unmount", () => {
