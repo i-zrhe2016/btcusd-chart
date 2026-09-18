@@ -11,6 +11,8 @@ export const DEFAULT_CHART_WINDOW_STATE: ChartWindowState = {
 };
 
 const POPUP_FEATURES = "popup=yes,width=1440,height=960,resizable=yes,scrollbars=yes";
+const SENSITIVE_URL_KEY = /^(?:access_token|api[_-]?key|authorization|code|credential|id_token|password|refresh_token|secret|token)$/i;
+const SENSITIVE_HASH_STATE = /(?:^#|[&#?])(?:access_token|api[_-]?key|authorization|code|credential|id_token|password|refresh_token|secret|token)=/i;
 
 function isSymbol(value: string | null): value is Symbol {
   return value !== null && (SYMBOLS as readonly string[]).includes(value);
@@ -43,8 +45,15 @@ export function createChartWindowUrl(state: ChartWindowState, currentUrl: string
 function createChartWindowRouteUrl(currentUrl: string): string {
   const url = new URL(currentUrl);
 
-  url.search = "";
-  url.hash = "";
+  for (const key of [...url.searchParams.keys()]) {
+    if (SENSITIVE_URL_KEY.test(key)) {
+      url.searchParams.delete(key);
+    }
+  }
+
+  if (SENSITIVE_HASH_STATE.test(url.hash)) {
+    url.hash = "";
+  }
 
   return url.toString();
 }
