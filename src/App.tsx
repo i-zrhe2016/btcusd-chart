@@ -118,6 +118,7 @@ export default function App() {
   const [watchlistQuery, setWatchlistQuery] = useState("");
   const [windowMessage, setWindowMessage] = useState<string | null>(null);
   const urlHistoryMode = useRef<"push" | "replace">("replace");
+  const launchSequence = useRef(0);
   const launchId = typeof window === "undefined" ? null : getChartWindowLaunchId(window.location.search);
   const market = useMarketData({ symbol, interval });
   const candles = market.candles;
@@ -181,6 +182,8 @@ export default function App() {
   const showChartMessage = !stats || market.status === "error";
 
   const handleOpenChartWindow = () => {
+    const currentLaunch = launchSequence.current + 1;
+    launchSequence.current = currentLaunch;
     const launch = openChartWindow({ symbol, interval });
 
     if (!launch) {
@@ -190,6 +193,10 @@ export default function App() {
 
     setWindowMessage(null);
     void launch.ready.then((ready) => {
+      if (launchSequence.current !== currentLaunch) {
+        return;
+      }
+
       if (!ready) {
         setWindowMessage("The chart window was blocked. Allow pop-ups and try again.");
       }

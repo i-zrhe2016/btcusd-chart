@@ -36,6 +36,7 @@ export function parseChartWindowState(search: string): ChartWindowState {
 
 export function createChartWindowUrl(state: ChartWindowState, currentUrl: string, launchId?: string): string {
   const sourceUrl = new URL(currentUrl);
+  // The web workspace has no route state outside its pathname; never copy ambient URL state into a child.
   const url = new URL(sourceUrl.origin + sourceUrl.pathname);
 
   url.searchParams.set("symbol", state.symbol);
@@ -137,7 +138,15 @@ export function openChartWindow(
   }
 
   const launchId = createLaunchId();
-  const channel = readyChannelFactory?.(createChartWindowChannelName(launchId)) ?? null;
+  let channel: ChartWindowReadyChannel | null = null;
+
+  try {
+    channel = readyChannelFactory?.(createChartWindowChannelName(launchId)) ?? null;
+  } catch {
+    channel = null;
+  }
+
+  const readiness = channel ? waitForChartWindowReady(channel, null) : null;
   let childWindow: Window | null = null;
 
   try {
@@ -163,6 +172,6 @@ export function openChartWindow(
 
   return {
     childWindow,
-    ready: waitForChartWindowReady(channel, childWindow),
+    ready: readiness ?? Promise.resolve(childWindow !== null),
   };
 }
