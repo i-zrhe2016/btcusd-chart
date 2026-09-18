@@ -51,10 +51,66 @@ IMAGE_TAG="$(git rev-parse --short HEAD)" docker compose up -d
 ```
 
 The Compose file still defaults to the `local` tag for convenient development.
-For a shared or production environment, define a separate deployment contract
-covering the target identity, public access boundary, TLS, secrets, health and
-smoke checks, immutable artifact retention, and rollback before changing the
-default localhost-only binding.
+For the existing Tailscale-bound shared service, use the guarded entrypoint at
+`deploy/tailscale-compose-deploy.sh`. It does not change firewall, SSH, DNS,
+TLS, or unrelated host services. The target must already have its Tailscale
+access boundary and recovery path reviewed before this command is allowed to
+change the container.
+
+## Tailscale deployment contract
+
+The contract is external runtime configuration and must not be committed with
+real host values or credentials. Start from
+`deploy/tailscale.env.example` and keep the completed file owner-readable, for
+example at `/etc/btcusd-chart/tailscale.env`.
+
+Required values include:
+
+- `TARGET_HOSTNAME`, `EXPECTED_NODE_ID`, and `EXPECTED_TAILSCALE_IP` for the
+  target identity. The entrypoint discovers the local Tailscale IPv4 and checks
+  it against the contract; it never uses a caller-supplied address as the
+  destination.
+- `TARGET_DESIGNATION=tailscale-hardened` and the target environment.
+- `SOURCE_REVISION` for the checked-out immutable Git revision.
+- `ROLLBACK_TAG` for an already available known-good image.
+- `WEB_PORT`, health/smoke paths, and the Compose project/service names.
+
+Before the first mutation, verify the target boundary and recovery path through
+the applicable operator controls. The entrypoint deliberately refuses a
+missing or mismatched contract, an unavailable rollback image, an invalid
+Compose configuration, or a non-matching checkout.
+
+Validate without changing the service:
+
+```bash
+bash deploy/tailscale-compose-deploy.sh \
+  --config /etc/btcusd-chart/tailscale.env \
+  --dry-run
+```
+
+Deploy the checked-out contract revision:
+
+```bash
+bash deploy/tailscale-compose-deploy.sh \
+  --config /etc/btcusd-chart/tailscale.env
+```
+
+The command builds an image tagged with the checked-out revision, updates only
+the configured Compose service, checks `/health` and the configured smoke path,
+and retains the previous image. A failed post-deploy check attempts one
+rollback and verifies the rollback health before returning failure.
+
+Run the documented rollback explicitly when required:
+
+```bash
+bash deploy/tailscale-compose-deploy.sh \
+  --config /etc/btcusd-chart/tailscale.env \
+  --rollback
+```
+
+The entrypoint is an existing operator command, not a replacement for target
+hardening or an access catalog. It must be run on the approved target through
+the approved management path.
 
 The local rollback path is to stop the Compose project and rebuild from the
 last known-good Git revision:
