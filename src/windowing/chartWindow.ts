@@ -10,7 +10,7 @@ export const DEFAULT_CHART_WINDOW_STATE: ChartWindowState = {
   interval: "15m",
 };
 
-const POPUP_FEATURES = "popup=yes,width=1440,height=960,resizable=yes,scrollbars=yes,noopener,noreferrer";
+const POPUP_FEATURES = "popup=yes,width=1440,height=960,resizable=yes,scrollbars=yes";
 
 function isSymbol(value: string | null): value is Symbol {
   return value !== null && (SYMBOLS as readonly string[]).includes(value);
@@ -34,10 +34,17 @@ export function parseChartWindowState(search: string): ChartWindowState {
 export function createChartWindowUrl(state: ChartWindowState, currentUrl: string): string {
   const url = new URL(currentUrl);
 
-  url.search = "";
-  url.hash = "";
   url.searchParams.set("symbol", state.symbol);
   url.searchParams.set("interval", state.interval);
+
+  return url.toString();
+}
+
+function createChartWindowRouteUrl(currentUrl: string): string {
+  const url = new URL(currentUrl);
+
+  url.search = "";
+  url.hash = "";
 
   return url.toString();
 }
@@ -54,7 +61,7 @@ export function openChartWindow(
   currentUrl?: string,
 ): Window | null {
   const browserOpener = opener ?? (typeof window === "undefined" ? null : window.open.bind(window));
-  const browserUrl = currentUrl ?? (typeof window === "undefined" ? null : window.location.href);
+  const browserUrl = currentUrl ?? (typeof window === "undefined" ? null : createChartWindowRouteUrl(window.location.href));
 
   if (!browserOpener || !browserUrl) {
     return null;
@@ -64,6 +71,8 @@ export function openChartWindow(
 
   if (childWindow) {
     try {
+      childWindow.opener = null;
+
       if (!childWindow.closed) {
         childWindow.focus();
       }

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import PriceChart from "./components/chart/PriceChart";
@@ -184,6 +184,18 @@ describe("App", () => {
 
     expect(window.location.pathname).toBe("/");
     expect(window.location.search).toBe("?symbol=BTCUSD&interval=1h");
+  });
+
+  it("rehydrates chart state when browser history changes", () => {
+    render(<App />);
+
+    act(() => {
+      window.history.pushState(null, "", "/?symbol=ETHUSD&interval=1h");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+
+    expect(screen.getByRole("heading", { name: "ETHUSD" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "1h" }).getAttribute("aria-pressed")).toBe("true");
   });
 
   it("shows a retry action when the browser blocks a chart window", () => {

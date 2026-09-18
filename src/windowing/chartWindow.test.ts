@@ -13,7 +13,7 @@ describe("chart window state", () => {
       "https://chart.example/workspace?source=watchlist#private-state",
     );
 
-    expect(url).toBe("https://chart.example/workspace?symbol=ETHUSD&interval=1h");
+    expect(url).toBe("https://chart.example/workspace?source=watchlist&symbol=ETHUSD&interval=1h#private-state");
   });
 
   it("hydrates valid state and falls back independently for invalid parameters", () => {
@@ -24,7 +24,7 @@ describe("chart window state", () => {
 
   it("opens and focuses a new browser window with the encoded chart state", () => {
     const focus = vi.fn();
-    const childWindow = { closed: false, focus } as unknown as Window;
+    const childWindow = { closed: false, focus, opener: window } as unknown as Window;
     const opener = vi.fn(() => childWindow);
 
     expect(openChartWindow({ symbol: "BTCUSD", interval: "5m" }, opener, "https://chart.example/")).toBe(childWindow);
@@ -33,16 +33,7 @@ describe("chart window state", () => {
       "_blank",
       expect.stringContaining("popup=yes"),
     );
-    expect(opener).toHaveBeenCalledWith(
-      expect.anything(),
-      "_blank",
-      expect.stringContaining("noopener"),
-    );
-    expect(opener).toHaveBeenCalledWith(
-      expect.anything(),
-      "_blank",
-      expect.stringContaining("noreferrer"),
-    );
+    expect(childWindow.opener).toBeNull();
     expect(focus).toHaveBeenCalledTimes(1);
   });
 
