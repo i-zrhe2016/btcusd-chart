@@ -22,7 +22,12 @@ import { toBinanceSymbol } from "./market-data/binanceAdapter";
 import { useChartStore } from "./stores/chartStore";
 import { INTERVALS, SYMBOLS, type Interval, type Symbol, type WatchlistItem, type WatchlistQuote } from "./types/market";
 import type { MarketDataErrorInfo, MarketDataStatus } from "./market-data/types";
-import { openChartWindow, parseChartWindowState } from "./windowing/chartWindow";
+import {
+  createChartWindowChannelName,
+  getChartWindowLaunchId,
+  openChartWindow,
+  parseChartWindowState,
+} from "./windowing/chartWindow";
 
 const watchlist: WatchlistItem[] = [
   { symbol: "BTCUSD", venue: "Binance spot" },
@@ -113,6 +118,7 @@ export default function App() {
   const [watchlistQuery, setWatchlistQuery] = useState("");
   const [windowMessage, setWindowMessage] = useState<string | null>(null);
   const urlHistoryMode = useRef<"push" | "replace">("replace");
+  const launchId = typeof window === "undefined" ? null : getChartWindowLaunchId(window.location.search);
   const market = useMarketData({ symbol, interval });
   const candles = market.candles;
   const watchlistQuotes = useMemo<WatchlistQuote[]>(() => watchlist.map((item) => {
@@ -175,14 +181,19 @@ export default function App() {
   const showChartMessage = !stats || market.status === "error";
 
   const handleOpenChartWindow = () => {
-    const childWindow = openChartWindow({ symbol, interval });
+    const launch = openChartWindow({ symbol, interval });
 
-    if (!childWindow) {
+    if (!launch) {
       setWindowMessage("The chart window was blocked. Allow pop-ups and try again.");
       return;
     }
 
     setWindowMessage(null);
+    void launch.ready.then((ready) => {
+      if (!ready) {
+        setWindowMessage("The chart window was blocked. Allow pop-ups and try again.");
+      }
+    });
   };
 
   const selectSymbol = (nextSymbol: Symbol) => {
@@ -242,6 +253,16 @@ export default function App() {
 
     return () => window.removeEventListener("popstate", updateFromUrl);
   }, [interval, setInterval, setSymbol, symbol]);
+
+  useEffect(() => {
+    if (!launchId || typeof window.BroadcastChannel !== "function") {
+      return;
+    }
+
+    const channel = new window.BroadcastChannel(createChartWindowChannelName(launchId));
+    channel.postMessage("chart-window-ready");
+    channel.close();
+  }, [launchId]);
 
   useEffect(() => {
     const focusSearch = (event: KeyboardEvent) => {
