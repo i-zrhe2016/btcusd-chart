@@ -41,4 +41,15 @@ describe("chart window state", () => {
 
     expect(openChartWindow({ symbol: "BTCUSD", interval: "15m" }, opener, "https://chart.example/")).toBeNull();
   });
+
+  it("returns the child window when focusing it fails", () => {
+    const childWindow = {
+      closed: false,
+      focus: vi.fn(() => {
+        throw new Error("focus denied");
+      }),
+    } as unknown as Window;
+
+    expect(openChartWindow({ symbol: "BTCUSD", interval: "15m" }, vi.fn(() => childWindow), "https://chart.example/")).toBe(childWindow);
+  });
 });

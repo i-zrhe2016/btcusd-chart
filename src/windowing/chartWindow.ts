@@ -53,8 +53,14 @@ export function openChartWindow(
 ): Window | null {
   const childWindow = opener(createChartWindowUrl(state, currentUrl), "_blank", POPUP_FEATURES);
 
-  if (childWindow && !childWindow.closed) {
-    childWindow.focus();
+  if (childWindow) {
+    try {
+      if (!childWindow.closed) {
+        childWindow.focus();
+      }
+    } catch {
+      // A popup may close or reject focus before the click handler finishes.
+    }
   }
 
   return childWindow;
