@@ -1,8 +1,9 @@
 import { useEffect, useRef } from "react";
 import PriceChart from "../chart/PriceChart";
+import PanelStatusOverlay from "./PanelStatusOverlay";
 import { useMarketData } from "../../market-data/useMarketData";
 import type { Interval, Symbol } from "../../types/market";
-import { statusLabel, statusMessage } from "./panelStatus";
+import { statusLabel } from "./panelStatus";
 
 export interface ExpandedPanelProps {
   panelId: string;
@@ -20,14 +21,7 @@ export default function ExpandedPanel({ panelId, symbol, interval, onClose }: Ex
   const dialogRef = useRef<HTMLDivElement>(null);
   const market = useMarketData({ symbol, interval });
   const title = `${symbol} ${interval}`;
-  const hasCandles = market.candles.length > 0;
   const label = statusLabel(market.status);
-  const message = statusMessage(market.status, market.error);
-  // This view is the active reading surface and owns its subscription, so it
-  // recovers the same way a panel does: cover the chart only while there is
-  // nothing to read, and otherwise keep the candles with a retry strip.
-  const showBlockingMessage = !hasCandles;
-  const showErrorBanner = hasCandles && market.status === "error";
 
   useEffect(() => {
     dialogRef.current?.focus();
@@ -115,31 +109,13 @@ export default function ExpandedPanel({ panelId, symbol, interval, onClose }: Ex
             candles={market.candles}
             symbol={symbol}
             viewKey={`${panelId}:${symbol}:${interval}:expanded`}
-            onExpand={onClose}
           />
-          {showBlockingMessage && (
-            <div
-              className={`panel-message status-${market.status}`}
-              role={market.status === "error" ? "alert" : "status"}
-              aria-live="polite"
-            >
-              <strong>{label}</strong>
-              <span>{message}</span>
-              {market.status === "error" && (
-                <button className="retry-button" type="button" onClick={market.retry}>
-                  Retry
-                </button>
-              )}
-            </div>
-          )}
-          {showErrorBanner && (
-            <div className="panel-banner status-error" role="alert" aria-live="polite">
-              <span>{message}</span>
-              <button className="retry-button" type="button" onClick={market.retry}>
-                Retry
-              </button>
-            </div>
-          )}
+          <PanelStatusOverlay
+            status={market.status}
+            error={market.error}
+            hasCandles={market.candles.length > 0}
+            onRetry={market.retry}
+          />
         </div>
       </div>
     </div>

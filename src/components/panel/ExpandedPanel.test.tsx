@@ -31,7 +31,9 @@ vi.mock("../../market-data/useMarketData", () => ({
 }));
 
 vi.mock("../chart/PriceChart", () => ({
-  default: () => <div data-testid="chart-canvas" />,
+  default: ({ onExpand }: { onExpand?: () => void }) => (
+    <div data-testid="chart-canvas" onDoubleClick={() => onExpand?.()} />
+  ),
 }));
 
 function renderExpanded(onClose = vi.fn()) {
@@ -117,5 +119,13 @@ describe("ExpandedPanel", () => {
 
     expect(screen.queryByRole("status")).toBeNull();
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("does not treat a double click on the expanded chart as a dismiss gesture", () => {
+    const onClose = renderExpanded();
+
+    fireEvent.doubleClick(screen.getByTestId("chart-canvas"));
+
+    expect(onClose).not.toHaveBeenCalled();
   });
 });

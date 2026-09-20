@@ -1,8 +1,9 @@
 import type { Ref } from "react";
 import PriceChart from "../chart/PriceChart";
+import PanelStatusOverlay from "./PanelStatusOverlay";
 import { useMarketData } from "../../market-data/useMarketData";
 import { INTERVALS, type Interval, type Symbol } from "../../types/market";
-import { formatPrice, statusLabel, statusMessage } from "./panelStatus";
+import { formatPrice, statusLabel } from "./panelStatus";
 
 export interface ChartPanelProps {
   panelId: string;
@@ -28,14 +29,7 @@ export default function ChartPanel({
 }: ChartPanelProps) {
   const market = useMarketData({ symbol, interval });
   const latestCandle = market.candles[market.candles.length - 1];
-  const hasCandles = market.candles.length > 0;
   const label = statusLabel(market.status);
-  const message = statusMessage(market.status, market.error);
-  // The panel only covers the chart while there is nothing to read. Once candles
-  // are loaded a reconnect, stale tick, or error must not hide them; the header
-  // carries the status and an error adds a retry banner beside the chart.
-  const showBlockingMessage = !hasCandles;
-  const showErrorBanner = hasCandles && market.status === "error";
 
   return (
     <section
@@ -73,29 +67,12 @@ export default function ChartPanel({
           viewKey={`${panelId}:${symbol}:${interval}`}
           onExpand={onExpand}
         />
-        {showBlockingMessage && (
-          <div
-            className={`panel-message status-${market.status}`}
-            role={market.status === "error" ? "alert" : "status"}
-            aria-live="polite"
-          >
-            <strong>{label}</strong>
-            <span>{message}</span>
-            {market.status === "error" && (
-              <button className="retry-button" type="button" onClick={market.retry}>
-                Retry
-              </button>
-            )}
-          </div>
-        )}
-        {showErrorBanner && (
-          <div className="panel-banner status-error" role="alert" aria-live="polite">
-            <span>{message}</span>
-            <button className="retry-button" type="button" onClick={market.retry}>
-              Retry
-            </button>
-          </div>
-        )}
+        <PanelStatusOverlay
+          status={market.status}
+          error={market.error}
+          hasCandles={market.candles.length > 0}
+          onRetry={market.retry}
+        />
       </div>
     </section>
   );
