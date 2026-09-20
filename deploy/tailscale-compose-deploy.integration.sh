@@ -21,9 +21,12 @@ fail() {
 }
 
 command -v docker >/dev/null 2>&1 || fail "docker is required"
+for required in curl jq flock git tar; do
+  command -v "$required" >/dev/null 2>&1 || fail "$required is required"
+done
 docker info >/dev/null 2>&1 || fail "a running Docker daemon is required"
 [[ -z "$(git -C "$ROOT_DIR" status --porcelain)" ]] || fail "the integration check requires a clean checkout"
-[[ "$RUN_ID" =~ ^[a-z0-9][a-z0-9.-]*$ ]] || fail "DEPLOY_INTEGRATION_RUN_ID must be a lowercase token"
+[[ "$RUN_ID" =~ ^[a-z0-9][a-z0-9-]*$ ]] || fail "DEPLOY_INTEGRATION_RUN_ID must be a lowercase token"
 
 port_in_use() {
   (exec 3<>"/dev/tcp/127.0.0.1/$1") >/dev/null 2>&1

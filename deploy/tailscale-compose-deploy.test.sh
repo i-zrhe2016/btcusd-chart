@@ -321,6 +321,7 @@ if [[ -n "$REAL_DOCKER" && -n "$REAL_JQ" ]]; then
   real_rendered_image="$(IMAGE_NAME=btcusd-chart IMAGE_TAG=test-commit IMAGE_REFERENCE=btcusd-chart:test-commit WEB_BIND_ADDRESS=192.0.2.2 WEB_PORT=8081 COMPOSE_PROJECT_NAME=btcusd-chart "$REAL_DOCKER" compose -f "$ROOT_DIR/docker-compose.yml" config --format json | "$REAL_JQ" -r '.services.web.image')"
   [[ "$real_rendered_image" == btcusd-chart:test-commit ]] || fail "real Compose did not render the configured image reference"
 else
+  grep -F 'IMAGE_REFERENCE' "$ROOT_DIR/docker-compose.yml" >/dev/null || fail "the Compose file no longer pins the image reference"
   printf 'skipping the real Compose render check: docker or jq is unavailable\n'
 fi
 
