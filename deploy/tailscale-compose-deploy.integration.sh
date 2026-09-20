@@ -120,10 +120,10 @@ run_entrypoint "$TMP_DIR/deploy.env" --rollback >/dev/null
 [[ "$(container_image_id)" == "$ROLLBACK_DIGEST" ]] || fail "explicit rollback did not restore the known-good image"
 
 write_contract "$TMP_DIR/mismatch.env" "$ROLLBACK_MARKER"
-if run_entrypoint "$TMP_DIR/mismatch.env" >/dev/null 2>"$TMP_DIR/mismatch.stderr"; then
+if run_entrypoint "$TMP_DIR/mismatch.env" >"$TMP_DIR/mismatch.log" 2>&1; then
   fail "a deployment whose smoke marker never appears unexpectedly succeeded"
 fi
 [[ "$(container_image_id)" == "$ROLLBACK_DIGEST" ]] || fail "failed post-deploy verification did not restore the known-good image"
-grep -F 'rollback verified' "$TMP_DIR/mismatch.stderr" >/dev/null || fail "the failed deployment did not verify its rollback"
+grep -F 'rollback verified' "$TMP_DIR/mismatch.log" >/dev/null || fail "the failed deployment did not verify its rollback"
 
 printf 'tailscale deployment integration test passed\n'
