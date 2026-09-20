@@ -67,8 +67,8 @@ in its POSIX mode bits (`chmod 600` or stricter), for example at
 entrypoint does not claim to inspect filesystem ACL entries.
 
 The command must run on the approved target checkout with Docker Compose v2,
-`tailscale`, `jq`, `git`, `curl`, `hostname`, `head`, `sleep`, `flock`, and
-`stat` available. The operating-system hostname and the Tailscale hostname must
+`tailscale`, `jq`, `git`, `curl`, `hostname`, `sleep`, `flock`, and `stat`
+available. The operating-system hostname and the Tailscale hostname must
 both match `TARGET_HOSTNAME`. The checkout must be clean and its `HEAD` must
 match `SOURCE_REVISION`. Ignored files are tolerated only when `.dockerignore`
 already keeps them out of the Docker build context, such as `node_modules/`,
@@ -182,9 +182,9 @@ local host: it builds a distinct known-good image, deploys the checked-out
 revision, verifies the health and smoke responses, performs a verified
 rollback, and confirms that a revision whose smoke marker only the known-good
 image serves fails and is rolled back to that verified image. It uses a
-disposable Compose project, image names, and port, and it removes them
-afterwards. It needs a running Docker daemon, a clean checkout, and explicit
-opt-in:
+disposable Compose project, image names, and port that are unique to the run,
+and it removes them afterwards. It needs a running Docker daemon, a clean
+checkout, and explicit opt-in:
 
 ```bash
 DEPLOY_INTEGRATION=1 bash deploy/tailscale-compose-deploy.integration.sh

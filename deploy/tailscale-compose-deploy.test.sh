@@ -41,11 +41,14 @@ assert_failure() {
 cat > "$FAKE_BIN/tailscale" <<'EOF'
 #!/usr/bin/env bash
 if [[ "$1" == ip ]]; then
-  if [[ "${FAKE_TARGET_MODE:-ok}" == bad-ip ]]; then
-    printf '192.0.2.3\n'
-  else
-    printf '192.0.2.2\n'
-  fi
+  case "${FAKE_TARGET_MODE:-ok}" in
+    bad-ip) printf '192.0.2.3\n' ;;
+    empty-ip) ;;
+    multi-ip) printf '192.0.2.2\n192.0.2.9\n' ;;
+    invalid-ip) printf 'not-an-address\n' ;;
+    ip-error) exit 1 ;;
+    *) printf '192.0.2.2\n' ;;
+  esac
 elif [[ "$1" == status ]]; then
   case "${FAKE_TARGET_MODE:-ok}" in
     malformed) printf '{}\n' ;;
@@ -343,7 +346,7 @@ grep -F 'config --format json' "$STATE_DIR/docker.log" >/dev/null || fail "dry-r
 
 assert_failure env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" FAKE_MISSING_ROLLBACK=1 bash "$SCRIPT" --config "$TMP_DIR/valid.env" --dry-run
 
-for mode in malformed offline bad-node bad-host bad-ip; do
+for mode in malformed offline bad-node bad-host bad-ip empty-ip multi-ip invalid-ip ip-error; do
   assert_failure env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" FAKE_TARGET_MODE="$mode" bash "$SCRIPT" --config "$TMP_DIR/valid.env" --dry-run
 done
 

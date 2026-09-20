@@ -201,7 +201,9 @@ discover_target() {
   ACTUAL_HOSTNAME="$(hostname)"
   [[ "$ACTUAL_HOSTNAME" == "$TARGET_HOSTNAME" ]] || die "hostname mismatch: expected $TARGET_HOSTNAME, got $ACTUAL_HOSTNAME"
 
-  ACTUAL_TAILSCALE_IP="$(tailscale ip -4 | head -n 1)"
+  ACTUAL_TAILSCALE_IP="$(tailscale ip -4)" || die "could not read the Tailscale IPv4 address"
+  [[ -n "$ACTUAL_TAILSCALE_IP" && "$ACTUAL_TAILSCALE_IP" != *$'\n'* ]] || die "tailscale ip -4 must report exactly one IPv4 address"
+  valid_ipv4 "$ACTUAL_TAILSCALE_IP" || die "tailscale ip -4 did not report a valid IPv4 address"
   [[ "$ACTUAL_TAILSCALE_IP" == "$EXPECTED_TAILSCALE_IP" ]] || die "Tailscale IPv4 mismatch"
 
   local status_json
@@ -427,7 +429,6 @@ main() {
   require_command git
   require_command docker
   require_command curl
-  require_command head
   require_command sleep
   require_command flock
   docker compose version >/dev/null 2>&1 || die "Docker Compose v2 is required: docker compose version failed"

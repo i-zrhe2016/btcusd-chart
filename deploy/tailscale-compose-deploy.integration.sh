@@ -4,8 +4,9 @@ set -Eeuo pipefail
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 SCRIPT="$ROOT_DIR/deploy/tailscale-compose-deploy.sh"
 COMPOSE_FILE="$ROOT_DIR/docker-compose.yml"
-COMPOSE_PROJECT="btcusd-chart-itest"
-IMAGE_NAME="btcusd-chart-itest"
+RUN_ID="${DEPLOY_INTEGRATION_RUN_ID:-$(date -u +%Y%m%dT%H%M%SZ)-$$}"
+COMPOSE_PROJECT="btcusd-chart-itest-$RUN_ID"
+IMAGE_NAME="btcusd-chart-itest/$RUN_ID"
 ROLLBACK_MARKER="itest-rollback-marker"
 
 if [[ "${DEPLOY_INTEGRATION:-0}" != 1 ]]; then
@@ -37,6 +38,8 @@ pick_port() {
 PORT="${DEPLOY_INTEGRATION_PORT:-$(pick_port)}" || fail "could not find a free port"
 
 REVISION_TAG="$(git -C "$ROOT_DIR" rev-parse --short=12 HEAD)"
+REVISION_IMAGE_ID=""
+ROLLBACK_DIGEST=""
 TMP_DIR="$(mktemp -d)"
 FAKE_BIN="$TMP_DIR/bin"
 mkdir -p "$FAKE_BIN" "$TMP_DIR/lock-dir"
@@ -54,8 +57,13 @@ container_image_id() {
 }
 
 cleanup() {
+  local reference
   compose down --remove-orphans >/dev/null 2>&1 || true
-  docker image rm -f "$IMAGE_NAME:$REVISION_TAG" "$IMAGE_NAME:rollback-tag" >/dev/null 2>&1 || true
+  for reference in "$REVISION_IMAGE_ID" "$ROLLBACK_DIGEST" "$IMAGE_NAME:$REVISION_TAG" "$IMAGE_NAME:rollback-tag"; do
+    if [[ -n "$reference" ]]; then
+      docker image rm -f "$reference" >/dev/null 2>&1 || true
+    fi
+  done
   rm -rf "$TMP_DIR"
 }
 trap cleanup EXIT
@@ -112,6 +120,7 @@ ROLLBACK_DIGEST="$(docker image inspect "$IMAGE_NAME:rollback-tag" --format '{{.
 
 write_contract "$TMP_DIR/deploy.env" 'BTCUSD Chart'
 run_entrypoint "$TMP_DIR/deploy.env" >/dev/null
+REVISION_IMAGE_ID="$(docker image inspect "$IMAGE_NAME:$REVISION_TAG" --format '{{.Id}}')"
 [[ "$(docker inspect "$(running_container)" --format '{{.Config.Image}}')" == "$IMAGE_NAME:$REVISION_TAG" ]] || fail "deploy did not run the built revision image"
 curl --fail --silent --max-time 10 "http://127.0.0.1:$PORT/health" | grep -q '^ok$' || fail "the deployed service did not answer the health check"
 curl --fail --silent --max-time 10 "http://127.0.0.1:$PORT/workspace" | grep -q 'BTCUSD Chart' || fail "the deployed service did not answer the smoke check"
