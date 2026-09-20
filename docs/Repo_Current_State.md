@@ -1,6 +1,6 @@
 # Repository Current State
 
-Last verified: 2026-09-20 @ ee8247f
+Last verified: 2026-09-20 @ cacf6d5
 
 ## Current Focus
 
@@ -38,9 +38,9 @@ Last verified: 2026-09-20 @ ee8247f
 ## Deployment
 
 - Default Compose remains explicitly non-publishing and binds to `127.0.0.1:8080`.
-- The existing Tailscale deployment is reachable on node `aws` at port `8081` (the node address is intentionally omitted from published state documentation).
+- The existing Tailscale deployment runs on node `aws` and publishes port `8081` on that node's Tailscale address only, so the service is reachable on the tailnet and not on `127.0.0.1:8081` (the node address is intentionally omitted from published state documentation).
 - Read-only runtime verification on 2026-09-20 returned HTTP 200 from `/health` and `/workspace`.
-- The image that runtime serves is Unverified: the last recorded check on 2026-09-18 found `btcusd-chart:acd65a0` (digest `sha256:36e0e368f06bd2a12f6360887f50c68d283d7beea6005d045a4f7c54431046b3`), and this host has no SSH access to re-check it.
+- The image that runtime serves is `btcusd-chart:acd65a0` with digest `sha256:36e0e368f06bd2a12f6360887f50c68d283d7beea6005d045a4f7c54431046b3`, verified on 2026-09-20 by inspecting the running `btcusd-chart-web-1` container on the runtime host.
 - The repository provides the entrypoint and its documented contract, but no target contract file is recorded here. Promoting a revision to the runtime is an external release handoff performed by the target's release owner.
 
 ## Known Issues / Failing Checks
