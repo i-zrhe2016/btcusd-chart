@@ -11,10 +11,10 @@ hold four independent subscriptions. Each panel keeps loading, stale,
 disconnected, and error states visible and does not fall back to local fixture
 data after live mode is enabled.
 
-The chart surface is black and white only: rising candles are hollow with a
-white border and wick, falling candles are filled white, and there are no grid
-lines. Double-click a panel to read its chart enlarged; click outside it or
-press Escape to close.
+The chart surface has no accent colors: rising candles are hollow with a white
+border and wick, falling candles are filled white, and there are no grid lines.
+Text and axes use light gray, and the crosshair a mid gray. Double-click a panel
+to read its chart enlarged; click outside it or press Escape to close.
 
 `BTCUSD` is the terminal's only market and it maps to `BTCUSDT`. Public history
 uses Binance's market-data REST endpoint and realtime candles use the public
