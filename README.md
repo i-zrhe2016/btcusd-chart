@@ -16,6 +16,7 @@ The chart toolbar can open the active symbol and interval in an independent
 browser window. The child window restores its chart state from URL parameters;
 Electron and cross-window synchronization are not required for this web flow.
 See [docs/WEB_WORKSPACES.md](docs/WEB_WORKSPACES.md) for the current behavior.
+See [docs/Repo_Current_State.md](docs/Repo_Current_State.md) for the verified current state of the repository.
 
 ## Development
 
