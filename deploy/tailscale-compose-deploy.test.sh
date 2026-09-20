@@ -153,11 +153,11 @@ if [[ "$1" == inspect ]]; then
   case "$4" in
     "{{.Config.Image}}") cat "$state_file" ;;
     "{{.Image}}")
-      if [[ "${FAKE_IMAGE_MISMATCH:-0}" == 1 && "$(cat "$state_file")" != btcusd-chart:rollback-tag ]]; then
+      if [[ "${FAKE_IMAGE_MISMATCH:-0}" == 1 && "$(cat "$state_file")" != "$FAKE_ROLLBACK_DIGEST" ]]; then
         printf '%s\n' "$FAKE_ROLLBACK_DIGEST"
         exit 0
       fi
-      if [[ "$(cat "$state_file")" == btcusd-chart:rollback-tag ]]; then
+      if [[ "$(cat "$state_file")" == "$FAKE_ROLLBACK_DIGEST" ]]; then
         printf '%s\n' "$FAKE_ROLLBACK_DIGEST"
       else
         printf '%s\n' "$FAKE_REVISION_DIGEST"
@@ -190,7 +190,10 @@ case " $* " in
     ;;
   *' build '*) printf 'build %s\n' "$*" >> "$FAKE_STATE_DIR/docker.log"; exit 0 ;;
   *' up '*)
-    [[ "$IMAGE_REFERENCE" == "$IMAGE_NAME:$IMAGE_TAG" ]] || exit 1
+    case "$IMAGE_REFERENCE" in
+      "$FAKE_REVISION_DIGEST"|"$FAKE_ROLLBACK_DIGEST") ;;
+      *) exit 1 ;;
+    esac
     if [[ "${FAKE_UP_FAIL:-0}" == 1 && "$IMAGE_TAG" != rollback-tag ]]; then
       exit 1
     fi
@@ -223,7 +226,7 @@ case "$url" in
   http://192.0.2.2:8081/workspace) body='<title>BTCUSD Chart</title>' ;;
   *) exit 1 ;;
 esac
-if [[ "$running_ref" != btcusd-chart:rollback-tag ]]; then
+if [[ "$running_ref" != "$FAKE_ROLLBACK_DIGEST" ]]; then
   if [[ "$url" == */health && -n "${FAKE_HEALTH_BODY:-}" ]]; then
     body="$FAKE_HEALTH_BODY"
   fi
@@ -231,10 +234,10 @@ if [[ "$running_ref" != btcusd-chart:rollback-tag ]]; then
     body="$FAKE_SMOKE_BODY"
   fi
 fi
-if [[ "${FAKE_FAIL_NEW:-0}" == 1 && "$(cat "$FAKE_STATE_DIR/running-ref" 2>/dev/null || true)" != btcusd-chart:rollback-tag ]]; then
+if [[ "${FAKE_FAIL_NEW:-0}" == 1 && "$(cat "$FAKE_STATE_DIR/running-ref" 2>/dev/null || true)" != "$FAKE_ROLLBACK_DIGEST" ]]; then
   exit 1
 fi
-if [[ "${FAKE_FAIL_ROLLBACK:-0}" == 1 && "$(cat "$FAKE_STATE_DIR/running-ref" 2>/dev/null || true)" == btcusd-chart:rollback-tag ]]; then
+if [[ "${FAKE_FAIL_ROLLBACK:-0}" == 1 && "$(cat "$FAKE_STATE_DIR/running-ref" 2>/dev/null || true)" == "$FAKE_ROLLBACK_DIGEST" ]]; then
   exit 1
 fi
 printf '%s\n' "$body"
@@ -358,6 +361,14 @@ cp "$TMP_DIR/valid.env" "$TMP_DIR/quoted.env"
 sed -i 's/^TARGET_ENVIRONMENT=.*/TARGET_ENVIRONMENT="staging"/' "$TMP_DIR/quoted.env"
 assert_success env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" bash "$SCRIPT" --config "$TMP_DIR/quoted.env" --dry-run
 
+cp "$TMP_DIR/valid.env" "$TMP_DIR/uppercase-image.env"
+sed -i 's/^IMAGE_NAME=.*/IMAGE_NAME=BTCUSD/' "$TMP_DIR/uppercase-image.env"
+assert_failure env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" bash "$SCRIPT" --config "$TMP_DIR/uppercase-image.env" --dry-run
+
+cp "$TMP_DIR/valid.env" "$TMP_DIR/dotted-project.env"
+sed -i 's/^COMPOSE_PROJECT_NAME=.*/COMPOSE_PROJECT_NAME=btcusd.chart/' "$TMP_DIR/dotted-project.env"
+assert_failure env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" bash "$SCRIPT" --config "$TMP_DIR/dotted-project.env" --dry-run
+
 env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" bash "$SCRIPT" --config "$TMP_DIR/valid.env" --dry-run >/dev/null
 grep -F 'config' "$STATE_DIR/docker.log" >/dev/null || fail "dry-run did not validate Compose configuration"
 grep -F 'config --format json' "$STATE_DIR/docker.log" >/dev/null || fail "dry-run did not validate the configured service image"
@@ -376,75 +387,75 @@ if env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" FAKE_LOCK_BUSY=1 FAKE_
 fi
 grep -F 'already active' "$TMP_DIR/lock-order.stderr" >/dev/null || fail "the deployment lock was not acquired before revision validation"
 
-printf 'btcusd-chart:rollback-tag\n' > "$STATE_DIR/running-ref"
+printf '%s\n' "$TEST_ROLLBACK_DIGEST" > "$STATE_DIR/running-ref"
 env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" bash "$SCRIPT" --config "$TMP_DIR/valid.env" >/dev/null
-[[ "$(cat "$STATE_DIR/running-ref")" == btcusd-chart:test-commit ]] || fail "successful deploy did not select the revision tag"
+[[ "$(cat "$STATE_DIR/running-ref")" == "$TEST_REVISION_DIGEST" ]] || fail "successful deploy did not start the revision image"
 grep -F '192.0.2.2:8081/health' "$STATE_DIR/curl.log" >/dev/null || fail "health path was not checked"
 grep -F '192.0.2.2:8081/workspace' "$STATE_DIR/curl.log" >/dev/null || fail "smoke path was not checked"
 
 cp "$TMP_DIR/valid.env" "$TMP_DIR/custom-marker.env"
 printf 'HEALTH_MARKER=ready\nSMOKE_MARKER=Chart Ready\n' >> "$TMP_DIR/custom-marker.env"
-printf 'btcusd-chart:rollback-tag\n' > "$STATE_DIR/running-ref"
+printf '%s\n' "$TEST_ROLLBACK_DIGEST" > "$STATE_DIR/running-ref"
 env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" FAKE_HEALTH_BODY='service is ready' FAKE_SMOKE_BODY='<title>Chart Ready</title>' bash "$SCRIPT" --config "$TMP_DIR/custom-marker.env" >/dev/null
-[[ "$(cat "$STATE_DIR/running-ref")" == btcusd-chart:test-commit ]] || fail "configured markers were not accepted"
+[[ "$(cat "$STATE_DIR/running-ref")" == "$TEST_REVISION_DIGEST" ]] || fail "configured markers were not accepted"
 
-printf 'btcusd-chart:rollback-tag\n' > "$STATE_DIR/running-ref"
+printf '%s\n' "$TEST_ROLLBACK_DIGEST" > "$STATE_DIR/running-ref"
 if env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" FAKE_HEALTH_BODY='wrong body' bash "$SCRIPT" --config "$TMP_DIR/valid.env" >/dev/null 2>"$TMP_DIR/health-marker.stderr"; then
   fail "unexpected health body unexpectedly succeeded"
 fi
-[[ "$(cat "$STATE_DIR/running-ref")" == btcusd-chart:rollback-tag ]] || fail "unexpected health body did not restore the rollback tag"
+[[ "$(cat "$STATE_DIR/running-ref")" == "$TEST_ROLLBACK_DIGEST" ]] || fail "unexpected health body did not restore the rollback image"
 
-printf 'btcusd-chart:rollback-tag\n' > "$STATE_DIR/running-ref"
+printf '%s\n' "$TEST_ROLLBACK_DIGEST" > "$STATE_DIR/running-ref"
 if env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" FAKE_SMOKE_BODY='wrong body' bash "$SCRIPT" --config "$TMP_DIR/valid.env" >/dev/null 2>"$TMP_DIR/smoke-marker.stderr"; then
   fail "unexpected smoke body unexpectedly succeeded"
 fi
-[[ "$(cat "$STATE_DIR/running-ref")" == btcusd-chart:rollback-tag ]] || fail "unexpected smoke body did not restore the rollback tag"
+[[ "$(cat "$STATE_DIR/running-ref")" == "$TEST_ROLLBACK_DIGEST" ]] || fail "unexpected smoke body did not restore the rollback image"
 
 env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" bash "$SCRIPT" --config "$TMP_DIR/valid.env" --rollback >/dev/null
-[[ "$(cat "$STATE_DIR/running-ref")" == btcusd-chart:rollback-tag ]] || fail "explicit rollback did not select the rollback tag"
+[[ "$(cat "$STATE_DIR/running-ref")" == "$TEST_ROLLBACK_DIGEST" ]] || fail "explicit rollback did not start the rollback image"
 
-printf 'btcusd-chart:rollback-tag\n' > "$STATE_DIR/running-ref"
+printf '%s\n' "$TEST_ROLLBACK_DIGEST" > "$STATE_DIR/running-ref"
 if env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" FAKE_UP_FAIL=1 bash "$SCRIPT" --config "$TMP_DIR/valid.env" >/dev/null 2>"$TMP_DIR/up.stderr"; then
   fail "failed compose up unexpectedly succeeded"
 fi
-[[ "$(cat "$STATE_DIR/running-ref")" == btcusd-chart:rollback-tag ]] || fail "compose up failure did not preserve the rollback tag"
+[[ "$(cat "$STATE_DIR/running-ref")" == "$TEST_ROLLBACK_DIGEST" ]] || fail "compose up failure did not preserve the rollback image"
 
-printf 'btcusd-chart:rollback-tag\n' > "$STATE_DIR/running-ref"
+printf '%s\n' "$TEST_ROLLBACK_DIGEST" > "$STATE_DIR/running-ref"
 if env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" FAKE_FAIL_NEW=1 bash "$SCRIPT" --config "$TMP_DIR/valid.env" >/dev/null 2>"$TMP_DIR/rollback.stderr"; then
   fail "failed post-deploy verification unexpectedly succeeded"
 fi
-[[ "$(cat "$STATE_DIR/running-ref")" == btcusd-chart:rollback-tag ]] || fail "failed deployment did not restore the rollback tag"
+[[ "$(cat "$STATE_DIR/running-ref")" == "$TEST_ROLLBACK_DIGEST" ]] || fail "failed deployment did not restore the rollback image"
 
-printf 'btcusd-chart:rollback-tag\n' > "$STATE_DIR/running-ref"
+printf '%s\n' "$TEST_ROLLBACK_DIGEST" > "$STATE_DIR/running-ref"
 if env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" FAKE_FAIL_NEW=1 FAKE_ROLLBACK_UP_FAIL=1 bash "$SCRIPT" --config "$TMP_DIR/valid.env" >/dev/null 2>"$TMP_DIR/rollback-command.stderr"; then
   fail "rollback command failure unexpectedly succeeded"
 fi
-[[ "$(cat "$STATE_DIR/running-ref")" == btcusd-chart:test-commit ]] || fail "rollback command failure did not preserve the deployed tag"
+[[ "$(cat "$STATE_DIR/running-ref")" == "$TEST_REVISION_DIGEST" ]] || fail "rollback command failure did not preserve the deployed image"
 
-printf 'btcusd-chart:rollback-tag\n' > "$STATE_DIR/running-ref"
+printf '%s\n' "$TEST_ROLLBACK_DIGEST" > "$STATE_DIR/running-ref"
 : > "$STATE_DIR/rollback-inspects"
 if env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" FAKE_FAIL_NEW=1 FAKE_ROLLBACK_RETAG=1 bash "$SCRIPT" --config "$TMP_DIR/valid.env" >"$TMP_DIR/retag.log" 2>&1; then
   fail "a rollback tag that changed after validation unexpectedly succeeded"
 fi
 grep -F 'rollback image no longer matches ROLLBACK_IMAGE_DIGEST' "$TMP_DIR/retag.log" >/dev/null || fail "the changed rollback image was not reported"
-[[ "$(cat "$STATE_DIR/running-ref")" == btcusd-chart:test-commit ]] || fail "the changed rollback image was still started"
+[[ "$(cat "$STATE_DIR/running-ref")" == "$TEST_REVISION_DIGEST" ]] || fail "the changed rollback image was still started"
 
-printf 'btcusd-chart:rollback-tag\n' > "$STATE_DIR/running-ref"
+printf '%s\n' "$TEST_ROLLBACK_DIGEST" > "$STATE_DIR/running-ref"
 if env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" FAKE_FAIL_NEW=1 FAKE_FAIL_ROLLBACK=1 bash "$SCRIPT" --config "$TMP_DIR/valid.env" >/dev/null 2>"$TMP_DIR/rollback-health.stderr"; then
   fail "rollback verification failure unexpectedly succeeded"
 fi
-[[ "$(cat "$STATE_DIR/running-ref")" == btcusd-chart:rollback-tag ]] || fail "rollback verification failure changed the rollback tag"
+[[ "$(cat "$STATE_DIR/running-ref")" == "$TEST_ROLLBACK_DIGEST" ]] || fail "rollback verification failure changed the rollback image"
 
-printf 'btcusd-chart:rollback-tag\n' > "$STATE_DIR/running-ref"
+printf '%s\n' "$TEST_ROLLBACK_DIGEST" > "$STATE_DIR/running-ref"
 if env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" FAKE_IMAGE_MISMATCH=1 bash "$SCRIPT" --config "$TMP_DIR/valid.env" >/dev/null 2>"$TMP_DIR/image-mismatch.stderr"; then
   fail "image mismatch unexpectedly succeeded"
 fi
-[[ "$(cat "$STATE_DIR/running-ref")" == btcusd-chart:rollback-tag ]] || fail "image mismatch did not restore the rollback tag"
+[[ "$(cat "$STATE_DIR/running-ref")" == "$TEST_ROLLBACK_DIGEST" ]] || fail "image mismatch did not restore the rollback image"
 
-printf 'btcusd-chart:rollback-tag\n' > "$STATE_DIR/running-ref"
+printf '%s\n' "$TEST_ROLLBACK_DIGEST" > "$STATE_DIR/running-ref"
 if env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" FAKE_MULTIPLE_CONTAINERS=1 bash "$SCRIPT" --config "$TMP_DIR/valid.env" >/dev/null 2>"$TMP_DIR/multiple-containers.stderr"; then
   fail "multiple containers unexpectedly succeeded"
 fi
-[[ "$(cat "$STATE_DIR/running-ref")" == btcusd-chart:rollback-tag ]] || fail "multiple containers did not leave the rollback tag"
+[[ "$(cat "$STATE_DIR/running-ref")" == "$TEST_ROLLBACK_DIGEST" ]] || fail "multiple containers did not leave the rollback image"
 
 printf 'tailscale deployment tests passed\n'

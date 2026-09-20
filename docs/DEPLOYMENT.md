@@ -103,6 +103,8 @@ Optional settings use the defaults shown in `deploy/tailscale.env.example` when
 they are omitted:
 
 - `SERVICE_NAME`, `WEB_PORT`, `COMPOSE_PROJECT_NAME`, and `IMAGE_NAME`.
+  `IMAGE_NAME` must be lowercase and `COMPOSE_PROJECT_NAME` must use lowercase
+  letters, digits, `-`, and `_`.
 - `HEALTH_PATH` and `SMOKE_PATH` with `HEALTH_MARKER` and `SMOKE_MARKER`, which
   name the response content that must appear on those paths so a healthy
   listener that is not this application cannot pass verification. The defaults
@@ -133,8 +135,9 @@ bash deploy/tailscale-compose-deploy.sh \
 ```
 
 The command builds an image tagged with the checked-out revision, captures its
-local content-addressed image ID, starts the controlled revision tag, and
-checks that the running container still has that captured image ID. It updates
+local content-addressed image ID, starts that immutable image ID, and checks
+that the running container still has it, so a later retag cannot change what is
+started. It updates
 only the configured Compose service, rejects scaled services with anything
 other than one container, checks the configured health path (default
 `/health`) and smoke path including their configured markers, and retains the

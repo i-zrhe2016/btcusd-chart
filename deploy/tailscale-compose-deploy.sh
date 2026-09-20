@@ -31,7 +31,6 @@ DEPLOY_LOCK_PATH=""
 
 ROLLBACK_IMAGE_REFERENCE=""
 REVISION_IMAGE_DIGEST=""
-REVISION_IMAGE_REFERENCE=""
 
 usage() {
   cat <<'EOF'
@@ -190,8 +189,8 @@ validate_contract() {
   valid_marker "$SMOKE_MARKER" || die "invalid SMOKE_MARKER"
   [[ "$WAIT_SECONDS" =~ ^[0-9]+$ ]] && ((10#$WAIT_SECONDS >= 1 && 10#$WAIT_SECONDS <= 300)) || die "invalid WAIT_SECONDS"
   [[ "$SERVICE_NAME" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || die "invalid SERVICE_NAME"
-  [[ "$COMPOSE_PROJECT_NAME" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || die "invalid COMPOSE_PROJECT_NAME"
-  [[ "$IMAGE_NAME" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*(/[A-Za-z0-9][A-Za-z0-9_.-]*)?$ ]] || die "invalid IMAGE_NAME"
+  [[ "$COMPOSE_PROJECT_NAME" =~ ^[a-z0-9][a-z0-9_-]*$ ]] || die "invalid COMPOSE_PROJECT_NAME"
+  [[ "$IMAGE_NAME" =~ ^[a-z0-9][a-z0-9_.-]*(/[a-z0-9][a-z0-9_.-]*)?$ ]] || die "invalid IMAGE_NAME"
   [[ "$SOURCE_REVISION" =~ ^[0-9a-f]{40}$ ]] || die "SOURCE_REVISION must be a lowercase full commit ID"
   [[ "$DEPLOY_LOCK_PATH" == /* && "$DEPLOY_LOCK_PATH" != *'..'* && "$DEPLOY_LOCK_PATH" != *' '* ]] || die "invalid DEPLOY_LOCK_PATH"
   validate_lock_path
@@ -342,13 +341,12 @@ run_deployment() {
   log "building $IMAGE_NAME:$REVISION_TAG"
   compose "$IMAGE_NAME:$REVISION_TAG" "$REVISION_TAG" build --pull=false "$SERVICE_NAME"
   REVISION_IMAGE_DIGEST="$(image_id "$IMAGE_NAME:$REVISION_TAG")" || die "built image ID is unavailable"
-  REVISION_IMAGE_REFERENCE="$IMAGE_NAME:$REVISION_TAG"
   DEPLOY_STARTED=1
   log "starting service $SERVICE_NAME"
-  compose "$REVISION_IMAGE_REFERENCE" "$REVISION_TAG" up -d --no-build "$SERVICE_NAME"
+  compose "$REVISION_IMAGE_DIGEST" "$REVISION_TAG" up -d --no-build "$SERVICE_NAME"
   log "waiting for configured health and smoke checks"
   wait_for_service || die "post-deploy health or smoke check failed"
-  verify_image "$REVISION_IMAGE_REFERENCE" "$REVISION_TAG" "$REVISION_IMAGE_DIGEST" || die "running image does not match the requested revision"
+  verify_image "$REVISION_IMAGE_DIGEST" "$REVISION_TAG" "$REVISION_IMAGE_DIGEST" || die "running image does not match the requested revision"
   log "deployment verified"
   release_deploy_lock
 }
@@ -360,11 +358,11 @@ rollback() {
     log "rollback image no longer matches ROLLBACK_IMAGE_DIGEST"
     return 1
   fi
-  if ! compose "$ROLLBACK_IMAGE_REFERENCE" "$ROLLBACK_TAG" up -d --no-build "$SERVICE_NAME"; then
+  if ! compose "$ROLLBACK_IMAGE_DIGEST" "$ROLLBACK_TAG" up -d --no-build "$SERVICE_NAME"; then
     log "rollback command failed"
     return 1
   fi
-  if ! wait_for_service || ! verify_image "$ROLLBACK_IMAGE_REFERENCE" "$ROLLBACK_TAG" "$ROLLBACK_IMAGE_DIGEST"; then
+  if ! wait_for_service || ! verify_image "$ROLLBACK_IMAGE_DIGEST" "$ROLLBACK_TAG" "$ROLLBACK_IMAGE_DIGEST"; then
     log "rollback verification failed"
     return 1
   fi
