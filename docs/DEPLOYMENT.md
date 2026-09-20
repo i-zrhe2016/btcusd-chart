@@ -144,8 +144,10 @@ bash deploy/tailscale-compose-deploy.sh \
   --config /etc/btcusd-chart/tailscale.env
 ```
 
-The command builds an image tagged with the checked-out revision, captures its
-local content-addressed image ID, starts that immutable image ID, and checks
+The command builds an image tagged with the checked-out revision, revalidates
+that the checkout is still the requested clean revision before it touches the
+service, captures the built local content-addressed image ID, starts that
+immutable image ID, and checks
 that the running container still has it, so a later retag cannot change what is
 started. It updates
 only the configured Compose service, rejects scaled services with anything
