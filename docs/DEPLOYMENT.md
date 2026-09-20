@@ -68,12 +68,15 @@ entrypoint does not claim to inspect filesystem ACL entries.
 
 The command must run on the approved target checkout with Docker Compose v2,
 `tailscale`, `jq`, `git`, `curl`, `hostname`, `head`, `sleep`, `flock`, and
-`stat`
-available. The operating-system hostname and the Tailscale hostname must both
-match `TARGET_HOSTNAME`. The checkout must be clean and its `HEAD` must match
-`SOURCE_REVISION`. `DEPLOY_LOCK_PATH` names a trusted directory used for
-directory-level `flock`; it must be owned by the current user and must not be
-group/world-writable. Create the default directory before first use:
+`stat` available. The operating-system hostname and the Tailscale hostname must
+both match `TARGET_HOSTNAME`. The checkout must be clean and its `HEAD` must
+match `SOURCE_REVISION`. Ignored files are tolerated only when `.dockerignore`
+already keeps them out of the Docker build context, such as `node_modules/`,
+`dist/`, `coverage/`, `.playwright-cli/`, build metadata, and local `.env`
+files; any other ignored path stops the run before the first mutation.
+`DEPLOY_LOCK_PATH` names a trusted directory used for directory-level `flock`;
+it must be owned by the current user and must not be group/world-writable.
+Create the default directory before first use with
 `install -d -m 755 /run/btcusd-chart`.
 
 Required values include:
@@ -88,9 +91,14 @@ Required values include:
   known-good local image. `ROLLBACK_IMAGE_DIGEST` is the local content-addressed
   image ID returned by `.Id`, and it must match the local tag. Obtain it on the
   target with `docker image inspect <image>:<tag> --format '{{.Id}}'`.
-- `WEB_PORT`, health/smoke paths, and the Compose project/service names. The
-  optional service, port, path, wait, project, image, and lock settings use
-  the defaults shown in `deploy/tailscale.env.example` when omitted.
+- `WEB_PORT`, health/smoke paths, and the Compose project/service names.
+  `HEALTH_MARKER` and `SMOKE_MARKER` name the response content that must appear
+  on those paths, so a healthy listener that is not this application cannot
+  pass verification; they default to `ok` and `BTCUSD Chart`. Each marker must
+  be a plain single-line literal of at most 128 characters without glob
+  metacharacters. The optional service, port, path, marker, wait, project,
+  image, and lock settings use the defaults shown in
+  `deploy/tailscale.env.example` when omitted.
 
 Before the first mutation, verify the target boundary and recovery path through
 the applicable operator controls. The entrypoint deliberately refuses a
@@ -117,7 +125,8 @@ local content-addressed image ID, starts the controlled revision tag, and
 checks that the running container still has that captured image ID. It updates
 only the configured Compose service, rejects scaled services with anything
 other than one container, checks the configured health path (default
-`/health`) and smoke path, and retains the tagged images. A failed post-deploy
+`/health`) and smoke path including their configured markers, and retains the
+tagged images. A failed post-deploy
 check attempts one rollback to the separately maintained
 `ROLLBACK_TAG`/`ROLLBACK_IMAGE_DIGEST` pair and verifies that rollback before
 returning failure. It does not infer or retag whatever image happened to be

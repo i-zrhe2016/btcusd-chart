@@ -100,6 +100,13 @@ cat > "$FAKE_BIN/git" <<'EOF'
 #!/usr/bin/env bash
 source_revision="${FAKE_SOURCE_REVISION:?}"
 case "$*" in
+  *'status --porcelain=v1 --ignored'*)
+    case "${FAKE_IGNORED_MODE:-clean}" in
+      blocked) printf '!! notes.txt\n' ;;
+      allowed) printf '!! node_modules/\n!! dist/\n!! tsconfig.app.tsbuildinfo\n' ;;
+    esac
+    exit 0
+    ;;
   *'status --porcelain'*)
     [[ "${FAKE_DIRTY:-0}" == 1 ]] && printf ' M file\n'
     exit 0
@@ -197,14 +204,27 @@ cat > "$FAKE_BIN/curl" <<'EOF'
 #!/usr/bin/env bash
 url="${@: -1}"
 printf '%s\n' "$url" >> "$FAKE_STATE_DIR/curl.log"
-[[ "$url" == http://192.0.2.2:8081/health || "$url" == http://192.0.2.2:8081/workspace ]] || exit 1
+running_ref="$(cat "$FAKE_STATE_DIR/running-ref" 2>/dev/null || true)"
+case "$url" in
+  http://192.0.2.2:8081/health) body=ok ;;
+  http://192.0.2.2:8081/workspace) body='<title>BTCUSD Chart</title>' ;;
+  *) exit 1 ;;
+esac
+if [[ "$running_ref" != btcusd-chart:rollback-tag ]]; then
+  if [[ "$url" == */health && -n "${FAKE_HEALTH_BODY:-}" ]]; then
+    body="$FAKE_HEALTH_BODY"
+  fi
+  if [[ "$url" == */workspace && -n "${FAKE_SMOKE_BODY:-}" ]]; then
+    body="$FAKE_SMOKE_BODY"
+  fi
+fi
 if [[ "${FAKE_FAIL_NEW:-0}" == 1 && "$(cat "$FAKE_STATE_DIR/running-ref" 2>/dev/null || true)" != btcusd-chart:rollback-tag ]]; then
   exit 1
 fi
 if [[ "${FAKE_FAIL_ROLLBACK:-0}" == 1 && "$(cat "$FAKE_STATE_DIR/running-ref" 2>/dev/null || true)" == btcusd-chart:rollback-tag ]]; then
   exit 1
 fi
-exit 0
+printf '%s\n' "$body"
 EOF
 
 chmod +x "$FAKE_BIN"/*
@@ -285,6 +305,33 @@ env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" COMPOSE_FILE="$TMP_DIR/ig
 
 assert_failure env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" FAKE_DIRTY=1 bash "$SCRIPT" --config "$TMP_DIR/valid.env" --dry-run
 
+assert_failure env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" FAKE_IGNORED_MODE=blocked bash "$SCRIPT" --config "$TMP_DIR/valid.env" --dry-run
+env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" FAKE_IGNORED_MODE=allowed bash "$SCRIPT" --config "$TMP_DIR/valid.env" --dry-run >/dev/null
+
+cp "$TMP_DIR/valid.env" "$TMP_DIR/blank-marker.env"
+printf 'HEALTH_MARKER= \n' >> "$TMP_DIR/blank-marker.env"
+assert_failure env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" bash "$SCRIPT" --config "$TMP_DIR/blank-marker.env" --dry-run
+
+cp "$TMP_DIR/valid.env" "$TMP_DIR/long-marker.env"
+printf 'SMOKE_MARKER=%s\n' "$(printf 'x%.0s' {1..129})" >> "$TMP_DIR/long-marker.env"
+assert_failure env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" bash "$SCRIPT" --config "$TMP_DIR/long-marker.env" --dry-run
+
+cp "$TMP_DIR/valid.env" "$TMP_DIR/glob-marker.env"
+printf 'SMOKE_MARKER=*BTCUSD*\n' >> "$TMP_DIR/glob-marker.env"
+assert_failure env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" bash "$SCRIPT" --config "$TMP_DIR/glob-marker.env" --dry-run
+
+cp "$TMP_DIR/valid.env" "$TMP_DIR/trailing-quote.env"
+sed -i 's/^TARGET_ENVIRONMENT=.*/TARGET_ENVIRONMENT="staging"trailing/' "$TMP_DIR/trailing-quote.env"
+assert_failure env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" bash "$SCRIPT" --config "$TMP_DIR/trailing-quote.env" --dry-run
+
+cp "$TMP_DIR/valid.env" "$TMP_DIR/embedded-quote.env"
+sed -i 's/^TARGET_ENVIRONMENT=.*/TARGET_ENVIRONMENT=sta"ging/' "$TMP_DIR/embedded-quote.env"
+assert_failure env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" bash "$SCRIPT" --config "$TMP_DIR/embedded-quote.env" --dry-run
+
+cp "$TMP_DIR/valid.env" "$TMP_DIR/quoted.env"
+sed -i 's/^TARGET_ENVIRONMENT=.*/TARGET_ENVIRONMENT="staging"/' "$TMP_DIR/quoted.env"
+assert_success env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" bash "$SCRIPT" --config "$TMP_DIR/quoted.env" --dry-run
+
 env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" bash "$SCRIPT" --config "$TMP_DIR/valid.env" --dry-run >/dev/null
 grep -F 'config' "$STATE_DIR/docker.log" >/dev/null || fail "dry-run did not validate Compose configuration"
 grep -F 'config --format json' "$STATE_DIR/docker.log" >/dev/null || fail "dry-run did not validate the configured service image"
@@ -303,6 +350,24 @@ env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" bash "$SCRIPT" --config "
 [[ "$(cat "$STATE_DIR/running-ref")" == btcusd-chart:test-commit ]] || fail "successful deploy did not select the revision tag"
 grep -F '192.0.2.2:8081/health' "$STATE_DIR/curl.log" >/dev/null || fail "health path was not checked"
 grep -F '192.0.2.2:8081/workspace' "$STATE_DIR/curl.log" >/dev/null || fail "smoke path was not checked"
+
+cp "$TMP_DIR/valid.env" "$TMP_DIR/custom-marker.env"
+printf 'HEALTH_MARKER=ready\nSMOKE_MARKER=Chart Ready\n' >> "$TMP_DIR/custom-marker.env"
+printf 'btcusd-chart:rollback-tag\n' > "$STATE_DIR/running-ref"
+env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" FAKE_HEALTH_BODY='service is ready' FAKE_SMOKE_BODY='<title>Chart Ready</title>' bash "$SCRIPT" --config "$TMP_DIR/custom-marker.env" >/dev/null
+[[ "$(cat "$STATE_DIR/running-ref")" == btcusd-chart:test-commit ]] || fail "configured markers were not accepted"
+
+printf 'btcusd-chart:rollback-tag\n' > "$STATE_DIR/running-ref"
+if env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" FAKE_HEALTH_BODY='wrong body' bash "$SCRIPT" --config "$TMP_DIR/valid.env" >/dev/null 2>"$TMP_DIR/health-marker.stderr"; then
+  fail "unexpected health body unexpectedly succeeded"
+fi
+[[ "$(cat "$STATE_DIR/running-ref")" == btcusd-chart:rollback-tag ]] || fail "unexpected health body did not restore the rollback tag"
+
+printf 'btcusd-chart:rollback-tag\n' > "$STATE_DIR/running-ref"
+if env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" FAKE_SMOKE_BODY='wrong body' bash "$SCRIPT" --config "$TMP_DIR/valid.env" >/dev/null 2>"$TMP_DIR/smoke-marker.stderr"; then
+  fail "unexpected smoke body unexpectedly succeeded"
+fi
+[[ "$(cat "$STATE_DIR/running-ref")" == btcusd-chart:rollback-tag ]] || fail "unexpected smoke body did not restore the rollback tag"
 
 env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" bash "$SCRIPT" --config "$TMP_DIR/valid.env" --rollback >/dev/null
 [[ "$(cat "$STATE_DIR/running-ref")" == btcusd-chart:rollback-tag ]] || fail "explicit rollback did not select the rollback tag"

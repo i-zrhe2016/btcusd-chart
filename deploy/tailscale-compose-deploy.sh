@@ -22,6 +22,8 @@ SERVICE_NAME=""
 WEB_PORT=""
 HEALTH_PATH=""
 SMOKE_PATH=""
+HEALTH_MARKER=""
+SMOKE_MARKER=""
 WAIT_SECONDS=""
 COMPOSE_PROJECT_NAME=""
 IMAGE_NAME=""
@@ -86,6 +88,13 @@ valid_path() {
   [[ "$1" == /* ]] && [[ "$1" != *'..'* ]] && [[ "$1" != *' '* ]]
 }
 
+valid_marker() {
+  [[ -n "$1" && ${#1} -le 128 ]] || return 1
+  [[ "$1" != *$'\n'* && "$1" != *$'\r'* ]] || return 1
+  [[ "$1" == *[![:space:]]* ]] || return 1
+  [[ "$1" != *'*'* && "$1" != *'?'* && "$1" != *'['* && "$1" != *'\'* ]]
+}
+
 validate_trusted_directory() {
   local directory="$1" label="$2" directory_owner directory_mode directory_type directory_bits
   [[ -d "$directory" ]] || die "$label directory does not exist: $directory"
@@ -129,14 +138,20 @@ load_contract() {
     key="${line%%=*}"
     value="${line#*=}"
     [[ "$key" =~ ^[A-Z][A-Z0-9_]*$ ]] || die "invalid contract key: $key"
-    if [[ "$value" == \"*\" && "$value" == *\" ]]; then
+    if [[ "$value" == \"* ]]; then
+      [[ "$value" == *\" && "${value: -1}" == '"' && ${#value} -ge 2 ]] || die "invalid quoted contract value: $key"
       value="${value:1:${#value}-2}"
-    elif [[ "$value" == \'*\' && "$value" == *\' ]]; then
+      [[ "$value" != *\"* ]] || die "invalid quoted contract value: $key"
+    elif [[ "$value" == \'* ]]; then
+      [[ "$value" == *\' && "${value: -1}" == "'" && ${#value} -ge 2 ]] || die "invalid quoted contract value: $key"
       value="${value:1:${#value}-2}"
+      [[ "$value" != *\'* ]] || die "invalid quoted contract value: $key"
+    elif [[ "$value" == *\"* || "$value" == *\'* ]]; then
+      die "invalid quoted contract value: $key"
     fi
 
     case "$key" in
-      TARGET_ENVIRONMENT|TARGET_DESIGNATION|TARGET_HOSTNAME|EXPECTED_NODE_ID|EXPECTED_TAILSCALE_IP|SOURCE_REVISION|ROLLBACK_TAG|ROLLBACK_IMAGE_DIGEST|SERVICE_NAME|WEB_PORT|HEALTH_PATH|SMOKE_PATH|WAIT_SECONDS|COMPOSE_PROJECT_NAME|IMAGE_NAME|DEPLOY_LOCK_PATH)
+      TARGET_ENVIRONMENT|TARGET_DESIGNATION|TARGET_HOSTNAME|EXPECTED_NODE_ID|EXPECTED_TAILSCALE_IP|SOURCE_REVISION|ROLLBACK_TAG|ROLLBACK_IMAGE_DIGEST|SERVICE_NAME|WEB_PORT|HEALTH_PATH|SMOKE_PATH|HEALTH_MARKER|SMOKE_MARKER|WAIT_SECONDS|COMPOSE_PROJECT_NAME|IMAGE_NAME|DEPLOY_LOCK_PATH)
         [[ -z "${seen_keys[$key]+x}" ]] || die "duplicate contract key: $key"
         seen_keys["$key"]=1
         printf -v "$key" '%s' "$value"
@@ -171,6 +186,8 @@ validate_contract() {
   valid_digest "$ROLLBACK_IMAGE_DIGEST" || die "invalid ROLLBACK_IMAGE_DIGEST"
   valid_path "$HEALTH_PATH" || die "invalid HEALTH_PATH"
   valid_path "$SMOKE_PATH" || die "invalid SMOKE_PATH"
+  valid_marker "$HEALTH_MARKER" || die "invalid HEALTH_MARKER"
+  valid_marker "$SMOKE_MARKER" || die "invalid SMOKE_MARKER"
   [[ "$WAIT_SECONDS" =~ ^[0-9]+$ ]] && ((10#$WAIT_SECONDS >= 1 && 10#$WAIT_SECONDS <= 300)) || die "invalid WAIT_SECONDS"
   [[ "$SERVICE_NAME" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || die "invalid SERVICE_NAME"
   [[ "$COMPOSE_PROJECT_NAME" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || die "invalid COMPOSE_PROJECT_NAME"
@@ -200,6 +217,15 @@ discover_target() {
 
 discover_revision() {
   [[ -z "$(git -C "$ROOT_DIR" status --porcelain)" ]] || die "checkout has uncommitted changes"
+  local ignored_line ignored_path
+  while IFS= read -r ignored_line; do
+    [[ "$ignored_line" == '!! '* ]] || continue
+    ignored_path="${ignored_line:3}"
+    case "$ignored_path" in
+      .env|.env.*|.DS_Store|node_modules/|dist/|coverage/|.playwright-cli/|*.tsbuildinfo) ;;
+      *) die "ignored path would enter Docker build context: $ignored_path" ;;
+    esac
+  done < <(git -C "$ROOT_DIR" status --porcelain=v1 --ignored)
   CURRENT_SHA="$(git -C "$ROOT_DIR" rev-parse HEAD)"
   EXPECTED_SHA="$(git -C "$ROOT_DIR" rev-parse "${SOURCE_REVISION}^{commit}" 2>/dev/null)" || die "SOURCE_REVISION is not a commit in this checkout"
   [[ "$CURRENT_SHA" == "$EXPECTED_SHA" ]] || die "checked-out revision does not match SOURCE_REVISION"
@@ -237,16 +263,16 @@ verify_image() {
 }
 
 wait_for_service() {
-  local base_url="http://${ACTUAL_TAILSCALE_IP}:${WEB_PORT}" started_at=$SECONDS remaining timeout
+  local base_url="http://${ACTUAL_TAILSCALE_IP}:${WEB_PORT}" started_at=$SECONDS remaining timeout health_body smoke_body
   while :; do
     remaining=$((WAIT_SECONDS - (SECONDS - started_at)))
     ((remaining > 0)) || return 1
     timeout=$((remaining < 5 ? remaining : 5))
-    if curl --fail --silent --show-error --max-time "$timeout" "$base_url$HEALTH_PATH" >/dev/null; then
+    if health_body="$(curl --fail --silent --show-error --max-time "$timeout" "$base_url$HEALTH_PATH")" && [[ "$health_body" == *"$HEALTH_MARKER"* ]]; then
       remaining=$((WAIT_SECONDS - (SECONDS - started_at)))
       if ((remaining > 0)); then
         timeout=$((remaining < 5 ? remaining : 5))
-        if curl --fail --silent --show-error --max-time "$timeout" "$base_url$SMOKE_PATH" >/dev/null; then
+        if smoke_body="$(curl --fail --silent --show-error --max-time "$timeout" "$base_url$SMOKE_PATH")" && [[ "$smoke_body" == *"$SMOKE_MARKER"* ]]; then
           return 0
         fi
       fi
@@ -381,6 +407,8 @@ main() {
   : "${WEB_PORT:=8080}"
   : "${HEALTH_PATH:=/health}"
   : "${SMOKE_PATH:=/workspace}"
+  : "${HEALTH_MARKER:=ok}"
+  : "${SMOKE_MARKER:=BTCUSD Chart}"
   : "${WAIT_SECONDS:=30}"
   : "${COMPOSE_PROJECT_NAME:=btcusd-chart}"
   : "${IMAGE_NAME:=btcusd-chart}"
