@@ -94,7 +94,9 @@ EOF
 }
 
 run_entrypoint() {
-  env PATH="$FAKE_BIN:$PATH" bash "$SCRIPT" --config "$1"
+  local config="$1"
+  shift
+  env PATH="$FAKE_BIN:$PATH" bash "$SCRIPT" --config "$config" "$@"
 }
 
 printf 'building the known-good rollback image\n'
