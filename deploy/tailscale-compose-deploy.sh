@@ -356,6 +356,10 @@ run_deployment() {
 rollback() {
   ROLLING_BACK=1
   log "rolling back to $ROLLBACK_IMAGE_REFERENCE"
+  if ! verify_image_id "$ROLLBACK_IMAGE_REFERENCE" "$ROLLBACK_IMAGE_DIGEST"; then
+    log "rollback image no longer matches ROLLBACK_IMAGE_DIGEST"
+    return 1
+  fi
   if ! compose "$ROLLBACK_IMAGE_REFERENCE" "$ROLLBACK_TAG" up -d --no-build "$SERVICE_NAME"; then
     log "rollback command failed"
     return 1

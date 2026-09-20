@@ -23,6 +23,7 @@ fail() {
 command -v docker >/dev/null 2>&1 || fail "docker is required"
 docker info >/dev/null 2>&1 || fail "a running Docker daemon is required"
 [[ -z "$(git -C "$ROOT_DIR" status --porcelain)" ]] || fail "the integration check requires a clean checkout"
+[[ "$RUN_ID" =~ ^[a-z0-9][a-z0-9.-]*$ ]] || fail "DEPLOY_INTEGRATION_RUN_ID must be a lowercase token"
 
 port_in_use() {
   (exec 3<>"/dev/tcp/127.0.0.1/$1") >/dev/null 2>&1
@@ -60,6 +61,13 @@ compose() {
 running_container() {
   compose ps -q web
 }
+
+if [[ -n "$(compose ps -aq)" ]]; then
+  fail "the disposable Compose project $COMPOSE_PROJECT already has containers"
+fi
+if docker image inspect "$IMAGE_NAME:rollback-tag" >/dev/null 2>&1; then
+  fail "the disposable image name $IMAGE_NAME already exists"
+fi
 
 container_image_id() {
   docker inspect "$(running_container)" --format '{{.Image}}'

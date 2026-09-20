@@ -106,6 +106,7 @@ case "$*" in
   *'status --porcelain=v1 --ignored'*)
     case "${FAKE_IGNORED_MODE:-clean}" in
       blocked) printf '!! notes.txt\n' ;;
+      nested) printf '!! packages/app/node_modules/\n' ;;
       allowed) printf '!! node_modules/\n!! dist/\n!! coverage/\n!! .playwright-cli/\n!! tsconfig.app.tsbuildinfo\n!! .env.local\n!! .DS_Store\n!! .npmrc\n!! build.log\n' ;;
     esac
     exit 0
@@ -132,7 +133,16 @@ if [[ "$1" == image && "$2" == inspect ]]; then
     exit 1
   fi
   case "$3" in
-    btcusd-chart:rollback-tag|"$FAKE_ROLLBACK_DIGEST") printf '%s\n' "$FAKE_ROLLBACK_DIGEST" ;;
+    btcusd-chart:rollback-tag|"$FAKE_ROLLBACK_DIGEST")
+      if [[ "${FAKE_ROLLBACK_RETAG:-0}" == 1 ]]; then
+        printf 'inspected\n' >> "$FAKE_STATE_DIR/rollback-inspects"
+        if (( $(wc -l < "$FAKE_STATE_DIR/rollback-inspects") > 1 )); then
+          printf 'sha256:%s\n' "$(printf '3%.0s' {1..64})"
+          exit 0
+        fi
+      fi
+      printf '%s\n' "$FAKE_ROLLBACK_DIGEST"
+      ;;
     btcusd-chart:test-commit|"$FAKE_REVISION_DIGEST") printf '%s\n' "$FAKE_REVISION_DIGEST" ;;
     *) exit 1 ;;
   esac
@@ -320,6 +330,7 @@ env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" COMPOSE_FILE="$TMP_DIR/ig
 assert_failure env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" FAKE_DIRTY=1 bash "$SCRIPT" --config "$TMP_DIR/valid.env" --dry-run
 
 assert_failure env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" FAKE_IGNORED_MODE=blocked bash "$SCRIPT" --config "$TMP_DIR/valid.env" --dry-run
+assert_failure env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" FAKE_IGNORED_MODE=nested bash "$SCRIPT" --config "$TMP_DIR/valid.env" --dry-run
 env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" FAKE_IGNORED_MODE=allowed bash "$SCRIPT" --config "$TMP_DIR/valid.env" --dry-run >/dev/null
 
 cp "$TMP_DIR/valid.env" "$TMP_DIR/blank-marker.env"
@@ -408,6 +419,14 @@ if env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" FAKE_FAIL_NEW=1 FAKE_R
   fail "rollback command failure unexpectedly succeeded"
 fi
 [[ "$(cat "$STATE_DIR/running-ref")" == btcusd-chart:test-commit ]] || fail "rollback command failure did not preserve the deployed tag"
+
+printf 'btcusd-chart:rollback-tag\n' > "$STATE_DIR/running-ref"
+: > "$STATE_DIR/rollback-inspects"
+if env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" FAKE_FAIL_NEW=1 FAKE_ROLLBACK_RETAG=1 bash "$SCRIPT" --config "$TMP_DIR/valid.env" >"$TMP_DIR/retag.log" 2>&1; then
+  fail "a rollback tag that changed after validation unexpectedly succeeded"
+fi
+grep -F 'rollback image no longer matches ROLLBACK_IMAGE_DIGEST' "$TMP_DIR/retag.log" >/dev/null || fail "the changed rollback image was not reported"
+[[ "$(cat "$STATE_DIR/running-ref")" == btcusd-chart:test-commit ]] || fail "the changed rollback image was still started"
 
 printf 'btcusd-chart:rollback-tag\n' > "$STATE_DIR/running-ref"
 if env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" FAKE_FAIL_NEW=1 FAKE_FAIL_ROLLBACK=1 bash "$SCRIPT" --config "$TMP_DIR/valid.env" >/dev/null 2>"$TMP_DIR/rollback-health.stderr"; then
