@@ -217,14 +217,22 @@ discover_target() {
 }
 
 excluded_from_build_context() {
-  local path="$1" pattern
+  local path="$1" pattern negated excluded=0
   while IFS= read -r pattern || [[ -n "$pattern" ]]; do
-    if [[ -z "$pattern" || "$pattern" == \#* || "$pattern" == !* ]]; then
+    if [[ -z "$pattern" || "$pattern" == \#* ]]; then
       continue
     fi
-    case "$path" in $pattern) return 0 ;; esac
+    negated=0
+    if [[ "$pattern" == !* ]]; then
+      negated=1
+      pattern="${pattern#!}"
+      if [[ -z "$pattern" ]]; then
+        continue
+      fi
+    fi
+    case "$path" in $pattern) excluded=$((1 - negated)) ;; esac
   done < "$ROOT_DIR/.dockerignore"
-  return 1
+  ((excluded == 1))
 }
 
 discover_revision() {
