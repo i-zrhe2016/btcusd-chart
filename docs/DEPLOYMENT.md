@@ -168,10 +168,10 @@ the approved management path.
 
 ## Verifying the entrypoint
 
-Two checks cover the entrypoint and run from a clean checkout.
+Two checks cover the entrypoint.
 
-The fast unit suite uses fakes for the target identity, Docker, and HTTP, so it
-needs no Docker daemon and is safe in CI:
+The fast unit suite mocks the target identity, the checkout, Docker, and HTTP,
+so it needs neither a Docker daemon nor a clean tree and is safe in CI:
 
 ```bash
 bash deploy/tailscale-compose-deploy.test.sh
@@ -183,8 +183,9 @@ revision, verifies the health and smoke responses, performs a verified
 rollback, and confirms that a revision whose smoke marker only the known-good
 image serves fails and is rolled back to that verified image. It uses a
 disposable Compose project, image names, and port that are unique to the run,
-and it removes them afterwards. It needs a running Docker daemon, a clean
-checkout, and explicit opt-in:
+and it removes them afterwards. It requires a running Docker daemon, a clean
+checkout, and explicit opt-in, and it fails before building anything when those
+preconditions are missing:
 
 ```bash
 DEPLOY_INTEGRATION=1 bash deploy/tailscale-compose-deploy.integration.sh

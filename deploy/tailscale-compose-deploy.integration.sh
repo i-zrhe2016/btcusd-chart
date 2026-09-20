@@ -22,6 +22,7 @@ fail() {
 
 command -v docker >/dev/null 2>&1 || fail "docker is required"
 docker info >/dev/null 2>&1 || fail "a running Docker daemon is required"
+[[ -z "$(git -C "$ROOT_DIR" status --porcelain)" ]] || fail "the integration check requires a clean checkout"
 
 port_in_use() {
   (exec 3<>"/dev/tcp/127.0.0.1/$1") >/dev/null 2>&1
@@ -37,6 +38,13 @@ pick_port() {
 }
 
 PORT=""
+
+if [[ -n "${DEPLOY_INTEGRATION_PORT:-}" ]]; then
+  [[ "$DEPLOY_INTEGRATION_PORT" =~ ^[0-9]+$ ]] || fail "DEPLOY_INTEGRATION_PORT must be a port number"
+  if port_in_use "$DEPLOY_INTEGRATION_PORT"; then
+    fail "DEPLOY_INTEGRATION_PORT is already in use"
+  fi
+fi
 
 REVISION_TAG="$(git -C "$ROOT_DIR" rev-parse --short=12 HEAD)"
 REVISION_IMAGE_ID=""
@@ -112,11 +120,8 @@ run_entrypoint() {
 deploy_revision() {
   local attempt
   for attempt in 1 2; do
-    if [[ -n "${DEPLOY_INTEGRATION_PORT:-}" ]]; then
-      PORT="$DEPLOY_INTEGRATION_PORT"
-    else
-      PORT="$(pick_port)" || fail "could not find a free host port"
-    fi
+    PORT="$(pick_port)" || fail "could not find a free host port"
+    [[ -z "${DEPLOY_INTEGRATION_PORT:-}" ]] || PORT="$DEPLOY_INTEGRATION_PORT"
     write_contract "$TMP_DIR/deploy.env" 'BTCUSD Chart'
     if run_entrypoint "$TMP_DIR/deploy.env" >"$TMP_DIR/deploy.log" 2>&1; then
       return 0
@@ -131,7 +136,7 @@ printf 'building the known-good rollback image\n'
 ROLLBACK_SRC="$TMP_DIR/rollback-src"
 mkdir -p "$ROLLBACK_SRC"
 git -C "$ROOT_DIR" archive HEAD | tar -x -C "$ROLLBACK_SRC"
-sed -i "s#<title>BTCUSD Chart</title>#<title>BTCUSD Chart</title><meta name=\"itest-marker\" content=\"$ROLLBACK_MARKER\">#" "$ROLLBACK_SRC/index.html"
+sed -i "s#<title>BTCUSD Chart</title>#<title>BTCUSD Chart $ROLLBACK_MARKER</title>#" "$ROLLBACK_SRC/index.html"
 grep -q "$ROLLBACK_MARKER" "$ROLLBACK_SRC/index.html" || fail "could not build a distinct known-good image"
 docker build -q -f "$ROLLBACK_SRC/Dockerfile" -t "$IMAGE_NAME:rollback-tag" "$ROLLBACK_SRC" >/dev/null
 ROLLBACK_DIGEST="$(docker image inspect "$IMAGE_NAME:rollback-tag" --format '{{.Id}}')"
@@ -152,5 +157,8 @@ if run_entrypoint "$TMP_DIR/mismatch.env" >"$TMP_DIR/mismatch.log" 2>&1; then
 fi
 [[ "$(container_image_id)" == "$ROLLBACK_DIGEST" ]] || fail "failed post-deploy verification did not restore the known-good image"
 grep -F 'rollback verified' "$TMP_DIR/mismatch.log" >/dev/null || fail "the failed deployment did not verify its rollback"
+if grep -F 'rollback was not verified' "$TMP_DIR/mismatch.log" >/dev/null; then
+  fail "the failed deployment did not verify its rollback"
+fi
 
 printf 'tailscale deployment integration test passed\n'
