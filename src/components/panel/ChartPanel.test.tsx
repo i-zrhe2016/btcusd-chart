@@ -57,6 +57,10 @@ describe("ChartPanel", () => {
     marketDataMock.error = null;
     marketDataMock.retry.mockReset();
     marketDataMock.requests = [];
+    marketDataMock.candles = [
+      { time: 1_715_000_000, open: 62_871, high: 64_000, low: 62_000, close: 63_500, volume: 4_000 },
+      { time: 1_715_000_900, open: 63_500, high: 65_624.32, low: 61_489.56, close: 64_270.96, volume: 4_500 },
+    ];
   });
 
   it("shows the fixed market, the last price, and the panel timeframe", () => {
@@ -89,9 +93,32 @@ describe("ChartPanel", () => {
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
-  it("shows the error and retries the market data", () => {
+  it("keeps loaded candles visible while the feed is stale", () => {
+    marketDataMock.status = "stale";
+    renderPanel();
+
+    expect(screen.getByTestId("chart-canvas")).toBeTruthy();
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("keeps loaded candles visible and offers retry when the feed errors", () => {
     marketDataMock.status = "error";
     marketDataMock.error = { kind: "network", message: "Binance is offline" };
+    renderPanel();
+
+    expect(screen.getByTestId("chart-canvas")).toBeTruthy();
+    expect(screen.getByRole("alert").textContent).toContain("Binance is offline");
+
+    screen.getByRole("button", { name: "Retry" }).click();
+
+    expect(marketDataMock.retry).toHaveBeenCalledTimes(1);
+  });
+
+  it("covers the empty chart with the error and a retry action", () => {
+    marketDataMock.status = "error";
+    marketDataMock.error = { kind: "network", message: "Binance is offline" };
+    marketDataMock.candles = [];
     renderPanel();
 
     const alert = screen.getByRole("alert");
@@ -102,8 +129,9 @@ describe("ChartPanel", () => {
     expect(marketDataMock.retry).toHaveBeenCalledTimes(1);
   });
 
-  it("announces a stale feed without offering a retry", () => {
+  it("announces a stale feed over the chart once candles exist", () => {
     marketDataMock.status = "stale";
+    marketDataMock.candles = [];
     renderPanel();
 
     expect(screen.getByRole("status").textContent).toContain("Stale");

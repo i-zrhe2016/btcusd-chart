@@ -1,7 +1,8 @@
 # BTCUSD Chart
 
-Browser-only BTCUSD K-line terminal: four chart panels in a 2x2 grid at 15m /
-1h / 4h / 1D on a pure-black workspace.
+Browser-only BTCUSD K-line terminal: four chart panels in a 2x2 desktop grid at
+15m / 1h / 4h / 1D on a pure-black workspace, collapsing to a single scrollable
+column on narrow screens.
 
 The terminal uses Vite, React, TypeScript, Lightweight Charts 5.2, and Binance
 public spot market data. A browser-side MarketDataHub shares history and
@@ -21,6 +22,8 @@ kline stream. See [docs/Repo_Current_State.md](docs/Repo_Current_State.md) for
 the verified current state of the repository.
 
 ## Development
+
+Requires Node `^20.19.0 || >=22.12.0`.
 
 ```bash
 npm install

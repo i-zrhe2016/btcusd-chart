@@ -28,8 +28,14 @@ export default function ChartPanel({
 }: ChartPanelProps) {
   const market = useMarketData({ symbol, interval });
   const latestCandle = market.candles[market.candles.length - 1];
+  const hasCandles = market.candles.length > 0;
   const label = statusLabel(market.status);
   const message = statusMessage(market.status, market.error);
+  // The panel only covers the chart while there is nothing to read. Once candles
+  // are loaded a reconnect, stale tick, or error must not hide them; the header
+  // carries the status and an error adds a retry banner beside the chart.
+  const showBlockingMessage = !hasCandles;
+  const showErrorBanner = hasCandles && market.status === "error";
 
   return (
     <section
@@ -67,7 +73,7 @@ export default function ChartPanel({
           viewKey={`${panelId}:${symbol}:${interval}`}
           onExpand={onExpand}
         />
-        {market.status !== "live" && (
+        {showBlockingMessage && (
           <div
             className={`panel-message status-${market.status}`}
             role={market.status === "error" ? "alert" : "status"}
@@ -80,6 +86,14 @@ export default function ChartPanel({
                 Retry
               </button>
             )}
+          </div>
+        )}
+        {showErrorBanner && (
+          <div className="panel-banner status-error" role="alert" aria-live="polite">
+            <span>{message}</span>
+            <button className="retry-button" type="button" onClick={market.retry}>
+              Retry
+            </button>
           </div>
         )}
       </div>

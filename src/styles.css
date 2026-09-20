@@ -92,6 +92,7 @@ button:focus-visible {
 }
 
 .panel-symbol {
+  flex: 0 0 auto;
   color: var(--text);
   font-size: 12px;
   font-weight: 650;
@@ -99,6 +100,7 @@ button:focus-visible {
 }
 
 .panel-last {
+  flex: 0 0 auto;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
@@ -108,10 +110,19 @@ button:focus-visible {
   align-items: center;
   gap: 2px;
   min-width: 0;
+  /* Narrow panels scroll the timeframe row instead of pushing the status label
+     out of the header. */
+  overflow-x: auto;
+  scrollbar-width: none;
   margin-left: auto;
 }
 
+.panel-timeframes::-webkit-scrollbar {
+  display: none;
+}
+
 .panel-timeframe {
+  flex: 0 0 auto;
   padding: 2px 6px;
   border: 1px solid transparent;
   border-radius: 2px;
@@ -202,6 +213,24 @@ button:focus-visible {
   font-size: 12px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+/* A non-blocking status strip that sits over the chart footer, so a data
+   problem never hides candles the user is already reading. */
+.panel-banner {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 10px;
+  border-top: 1px solid var(--line);
+  background: var(--surface-raised);
+  color: var(--muted);
+  font-size: 11px;
 }
 
 .retry-button {
@@ -296,5 +325,18 @@ button:focus-visible {
 
   .panel-overlay {
     padding: 0;
+  }
+}
+
+/* Below the supported minimum the header cannot hold the market, the last
+   price, the timeframe row, and the status label at once; drop the price so the
+   controls stay reachable. */
+@media (max-width: 380px) {
+  .panel-last {
+    display: none;
+  }
+
+  .panel-header {
+    gap: 8px;
   }
 }
