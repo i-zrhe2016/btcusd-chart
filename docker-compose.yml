@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: btcusd-chart:${IMAGE_TAG:-local}
+    image: ${IMAGE_REFERENCE:-${IMAGE_NAME:-btcusd-chart}:${IMAGE_TAG:-local}}
     ports:
       - "${WEB_BIND_ADDRESS:-127.0.0.1}:${WEB_PORT:-8080}:80"
     restart: unless-stopped
