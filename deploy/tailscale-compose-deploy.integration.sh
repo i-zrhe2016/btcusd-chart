@@ -137,8 +137,12 @@ deploy_revision() {
     if run_entrypoint "$TMP_DIR/deploy.env" >"$TMP_DIR/deploy.log" 2>&1; then
       return 0
     fi
-    compose down --remove-orphans >/dev/null 2>&1 || true
-    printf 'deploy attempt %s did not succeed; retrying on another host port\n' "$attempt"
+    if (( attempt == 1 )) && [[ -z "${DEPLOY_INTEGRATION_PORT:-}" ]] && grep -qE 'address already in use|port is already allocated' "$TMP_DIR/deploy.log"; then
+      compose down --remove-orphans >/dev/null 2>&1 || true
+      printf 'the host port was taken by another process; retrying on a new port\n'
+      continue
+    fi
+    break
   done
   cat "$TMP_DIR/deploy.log" >&2
   fail "the checked-out revision did not deploy"
