@@ -215,16 +215,25 @@ discover_target() {
   [[ "$ACTUAL_BACKEND_STATE" == Running && "$ACTUAL_ONLINE" == true ]] || die "Tailscale is not online"
 }
 
+excluded_from_build_context() {
+  local path="$1" pattern
+  while IFS= read -r pattern || [[ -n "$pattern" ]]; do
+    if [[ -z "$pattern" || "$pattern" == \#* || "$pattern" == !* ]]; then
+      continue
+    fi
+    case "$path" in $pattern) return 0 ;; esac
+  done < "$ROOT_DIR/.dockerignore"
+  return 1
+}
+
 discover_revision() {
   [[ -z "$(git -C "$ROOT_DIR" status --porcelain)" ]] || die "checkout has uncommitted changes"
   local ignored_line ignored_path
   while IFS= read -r ignored_line; do
     [[ "$ignored_line" == '!! '* ]] || continue
     ignored_path="${ignored_line:3}"
-    case "$ignored_path" in
-      .env|.env.*|.DS_Store|node_modules/|dist/|coverage/|.playwright-cli/|*.tsbuildinfo) ;;
-      *) die "ignored path would enter Docker build context: $ignored_path" ;;
-    esac
+    ignored_path="${ignored_path%/}"
+    excluded_from_build_context "$ignored_path" || die "ignored path would enter Docker build context: $ignored_path"
   done < <(git -C "$ROOT_DIR" status --porcelain=v1 --ignored)
   CURRENT_SHA="$(git -C "$ROOT_DIR" rev-parse HEAD)"
   EXPECTED_SHA="$(git -C "$ROOT_DIR" rev-parse "${SOURCE_REVISION}^{commit}" 2>/dev/null)" || die "SOURCE_REVISION is not a commit in this checkout"

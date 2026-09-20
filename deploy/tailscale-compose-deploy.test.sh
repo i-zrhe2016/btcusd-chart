@@ -3,8 +3,8 @@ set -Eeuo pipefail
 
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 SCRIPT="$ROOT_DIR/deploy/tailscale-compose-deploy.sh"
-REAL_DOCKER="$(command -v docker)"
-REAL_JQ="$(command -v jq)"
+REAL_DOCKER="$(command -v docker || true)"
+REAL_JQ="$(command -v jq || true)"
 TMP_DIR="$(mktemp -d)"
 FAKE_BIN="$TMP_DIR/bin"
 STATE_DIR="$TMP_DIR/state"
@@ -103,7 +103,7 @@ case "$*" in
   *'status --porcelain=v1 --ignored'*)
     case "${FAKE_IGNORED_MODE:-clean}" in
       blocked) printf '!! notes.txt\n' ;;
-      allowed) printf '!! node_modules/\n!! dist/\n!! tsconfig.app.tsbuildinfo\n' ;;
+      allowed) printf '!! node_modules/\n!! dist/\n!! coverage/\n!! .playwright-cli/\n!! tsconfig.app.tsbuildinfo\n!! .env.local\n!! .DS_Store\n!! .npmrc\n!! build.log\n' ;;
     esac
     exit 0
     ;;
@@ -297,8 +297,12 @@ else
   assert_failure env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" bash "$SCRIPT" --config "$TMP_DIR/default-lock.env" --dry-run
 fi
 
-real_rendered_image="$(IMAGE_NAME=btcusd-chart IMAGE_TAG=test-commit IMAGE_REFERENCE=btcusd-chart:test-commit WEB_BIND_ADDRESS=192.0.2.2 WEB_PORT=8081 COMPOSE_PROJECT_NAME=btcusd-chart "$REAL_DOCKER" compose -f "$ROOT_DIR/docker-compose.yml" config --format json | "$REAL_JQ" -r '.services.web.image')"
-[[ "$real_rendered_image" == btcusd-chart:test-commit ]] || fail "real Compose did not render the configured image reference"
+if [[ -n "$REAL_DOCKER" && -n "$REAL_JQ" ]]; then
+  real_rendered_image="$(IMAGE_NAME=btcusd-chart IMAGE_TAG=test-commit IMAGE_REFERENCE=btcusd-chart:test-commit WEB_BIND_ADDRESS=192.0.2.2 WEB_PORT=8081 COMPOSE_PROJECT_NAME=btcusd-chart "$REAL_DOCKER" compose -f "$ROOT_DIR/docker-compose.yml" config --format json | "$REAL_JQ" -r '.services.web.image')"
+  [[ "$real_rendered_image" == btcusd-chart:test-commit ]] || fail "real Compose did not render the configured image reference"
+else
+  printf 'skipping the real Compose render check: docker or jq is unavailable\n'
+fi
 
 touch "$TMP_DIR/ignored-compose.yml"
 env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" COMPOSE_FILE="$TMP_DIR/ignored-compose.yml" bash "$SCRIPT" --config "$TMP_DIR/valid.env" --dry-run >/dev/null
