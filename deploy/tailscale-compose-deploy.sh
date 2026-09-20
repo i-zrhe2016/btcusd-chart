@@ -330,8 +330,6 @@ verify_image_id() {
 }
 
 run_deployment() {
-  acquire_deploy_lock
-
   if [[ "$MODE" == rollback ]]; then
     DEPLOY_STARTED=1
     rollback
@@ -435,6 +433,7 @@ main() {
   docker compose version >/dev/null 2>&1 || die "Docker Compose v2 is required: docker compose version failed"
 
   validate_contract
+  acquire_deploy_lock
   discover_target
   discover_revision
 

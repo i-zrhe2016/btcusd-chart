@@ -349,6 +349,11 @@ done
 
 assert_failure env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" FAKE_LOCK_BUSY=1 bash "$SCRIPT" --config "$TMP_DIR/valid.env"
 
+if env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" FAKE_LOCK_BUSY=1 FAKE_DIRTY=1 bash "$SCRIPT" --config "$TMP_DIR/valid.env" >/dev/null 2>"$TMP_DIR/lock-order.stderr"; then
+  fail "a busy deployment lock unexpectedly succeeded"
+fi
+grep -F 'already active' "$TMP_DIR/lock-order.stderr" >/dev/null || fail "the deployment lock was not acquired before revision validation"
+
 printf 'btcusd-chart:rollback-tag\n' > "$STATE_DIR/running-ref"
 env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" bash "$SCRIPT" --config "$TMP_DIR/valid.env" >/dev/null
 [[ "$(cat "$STATE_DIR/running-ref")" == btcusd-chart:test-commit ]] || fail "successful deploy did not select the revision tag"

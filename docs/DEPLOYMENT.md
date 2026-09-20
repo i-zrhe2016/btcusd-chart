@@ -135,9 +135,11 @@ tagged images. A failed post-deploy
 check attempts one rollback to the separately maintained
 `ROLLBACK_TAG`/`ROLLBACK_IMAGE_DIGEST` pair and verifies that rollback before
 returning failure. It does not infer or retag whatever image happened to be
-running before the update. The entrypoint also holds its local directory lock
-across build, update, verification, and rollback so two operator invocations
-cannot interleave.
+running before the update. The entrypoint acquires its local directory lock
+before it validates the target identity and the checked-out revision, and holds
+it across build, update, verification, and rollback, so two operator
+invocations cannot interleave and the build context cannot change between
+validation and build.
 
 Run the documented rollback explicitly when required. Rollback still requires
 the external contract, the approved target identity, the required command-line
@@ -155,6 +157,32 @@ bash deploy/tailscale-compose-deploy.sh \
 The entrypoint is an existing operator command, not a replacement for target
 hardening or an access catalog. It must be run on the approved target through
 the approved management path.
+
+## Verifying the entrypoint
+
+Two checks cover the entrypoint and run from a clean checkout.
+
+The fast unit suite uses fakes for the target identity, Docker, and HTTP, so it
+needs no Docker daemon and is safe in CI:
+
+```bash
+bash deploy/tailscale-compose-deploy.test.sh
+```
+
+The opt-in integration check exercises the real Docker Compose lifecycle on the
+local host: it builds a known-good image, deploys the checked-out revision,
+verifies the health and smoke responses, rolls back, and confirms that a
+deployment whose smoke marker never appears restores the known-good image. It
+uses a disposable Compose project, image names, and port, and it removes them
+afterwards. It needs a running Docker daemon, a clean checkout, and explicit
+opt-in:
+
+```bash
+DEPLOY_INTEGRATION=1 bash deploy/tailscale-compose-deploy.integration.sh
+```
+
+Set `DEPLOY_INTEGRATION_PORT` to pin the host port; otherwise the script picks a
+free one.
 
 The local rollback path is to stop the Compose project and rebuild from the
 last known-good Git revision:
