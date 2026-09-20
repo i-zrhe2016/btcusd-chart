@@ -155,7 +155,7 @@ ROLLBACK_DIGEST="$(docker image inspect "$IMAGE_NAME:rollback-tag" --format '{{.
 
 deploy_revision
 REVISION_IMAGE_ID="$(docker image inspect "$IMAGE_NAME:$REVISION_TAG" --format '{{.Id}}')"
-[[ "$(docker inspect "$(running_container)" --format '{{.Config.Image}}')" == "$IMAGE_NAME:$REVISION_TAG" ]] || fail "deploy did not run the built revision image"
+[[ "$(container_image_id)" == "$REVISION_IMAGE_ID" ]] || fail "deploy did not run the built revision image"
 curl --fail --silent --max-time 10 "http://127.0.0.1:$PORT/health" | grep -q '^ok$' || fail "the deployed service did not answer the health check"
 curl --fail --silent --max-time 10 "http://127.0.0.1:$PORT/workspace" | grep -q 'BTCUSD Chart' || fail "the deployed service did not answer the smoke check"
 
