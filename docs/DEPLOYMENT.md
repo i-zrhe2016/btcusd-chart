@@ -75,10 +75,11 @@ already keeps them out of the Docker build context, such as `node_modules/`,
 `dist/`, `coverage/`, `.playwright-cli/`, build metadata, and local `.env`
 files; any other ignored path stops the run before the first mutation.
 The check applies the patterns from `.dockerignore` to the path Git reports and
-fails closed. As in Docker, a pattern without a slash matches that path only, so
-a nested ignored directory such as `packages/app/node_modules` is not covered by
-the `node_modules` pattern; exclude it explicitly with a `**/node_modules`
-pattern in `.dockerignore` when a checkout contains one.
+fails closed. A pattern matches that reported path only, so a nested ignored
+directory such as `packages/app/node_modules` is not covered by the
+`node_modules` pattern and stops the run. Exclude such a path explicitly, for
+example with a `**/node_modules` pattern in `.dockerignore`, when a checkout
+contains one.
 `DEPLOY_LOCK_PATH` names a trusted directory used for directory-level `flock`;
 it must be owned by the current user and must not be group/world-writable.
 Create the default directory before first use with

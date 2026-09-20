@@ -44,7 +44,7 @@ pick_port() {
 PORT=""
 
 if [[ -n "${DEPLOY_INTEGRATION_PORT:-}" ]]; then
-  [[ "$DEPLOY_INTEGRATION_PORT" =~ ^[0-9]+$ ]] || fail "DEPLOY_INTEGRATION_PORT must be a port number"
+  [[ "$DEPLOY_INTEGRATION_PORT" =~ ^[0-9]+$ ]] && ((10#$DEPLOY_INTEGRATION_PORT >= 1 && 10#$DEPLOY_INTEGRATION_PORT <= 65535)) || fail "DEPLOY_INTEGRATION_PORT must be between 1 and 65535"
   if port_in_use "$DEPLOY_INTEGRATION_PORT"; then
     fail "DEPLOY_INTEGRATION_PORT is already in use"
   fi
@@ -137,6 +137,7 @@ deploy_revision() {
     if run_entrypoint "$TMP_DIR/deploy.env" >"$TMP_DIR/deploy.log" 2>&1; then
       return 0
     fi
+    compose down --remove-orphans >/dev/null 2>&1 || true
     printf 'deploy attempt %s did not succeed; retrying on another host port\n' "$attempt"
   done
   cat "$TMP_DIR/deploy.log" >&2
