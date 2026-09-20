@@ -74,6 +74,11 @@ match `SOURCE_REVISION`. Ignored files are tolerated only when `.dockerignore`
 already keeps them out of the Docker build context, such as `node_modules/`,
 `dist/`, `coverage/`, `.playwright-cli/`, build metadata, and local `.env`
 files; any other ignored path stops the run before the first mutation.
+The check applies the patterns from `.dockerignore` to the path Git reports and
+fails closed. As in Docker, a pattern without a slash matches that path only, so
+a nested ignored directory such as `packages/app/node_modules` is not covered by
+the `node_modules` pattern; exclude it explicitly with a `**/node_modules`
+pattern in `.dockerignore` when a checkout contains one.
 `DEPLOY_LOCK_PATH` names a trusted directory used for directory-level `flock`;
 it must be owned by the current user and must not be group/world-writable.
 Create the default directory before first use with
@@ -195,7 +200,9 @@ DEPLOY_INTEGRATION=1 bash deploy/tailscale-compose-deploy.integration.sh
 ```
 
 Set `DEPLOY_INTEGRATION_PORT` to pin the host port; otherwise the script picks a
-free one.
+free one and retries once on another port if the first attempt cannot bind it.
+The unit suite mocks Docker, so this integration lane is what proves that the
+real Compose and Engine accept the immutable image ID the entrypoint starts.
 
 The local rollback path is to stop the Compose project and rebuild from the
 last known-good Git revision:
