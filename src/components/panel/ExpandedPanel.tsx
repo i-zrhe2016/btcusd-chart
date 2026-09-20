@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import PriceChart from "../chart/PriceChart";
 import { useMarketData } from "../../market-data/useMarketData";
 import type { Interval, Symbol } from "../../types/market";
-import { statusLabel } from "./panelStatus";
+import { statusLabel, statusMessage } from "./panelStatus";
 
 export interface ExpandedPanelProps {
   panelId: string;
@@ -20,6 +20,14 @@ export default function ExpandedPanel({ panelId, symbol, interval, onClose }: Ex
   const dialogRef = useRef<HTMLDivElement>(null);
   const market = useMarketData({ symbol, interval });
   const title = `${symbol} ${interval}`;
+  const hasCandles = market.candles.length > 0;
+  const label = statusLabel(market.status);
+  const message = statusMessage(market.status, market.error);
+  // This view is the active reading surface and owns its subscription, so it
+  // recovers the same way a panel does: cover the chart only while there is
+  // nothing to read, and otherwise keep the candles with a retry strip.
+  const showBlockingMessage = !hasCandles;
+  const showErrorBanner = hasCandles && market.status === "error";
 
   useEffect(() => {
     dialogRef.current?.focus();
@@ -62,6 +70,14 @@ export default function ExpandedPanel({ panelId, symbol, interval, onClose }: Ex
         return;
       }
 
+      // The dialog itself starts focused and is inside the trap, so it needs its
+      // own wrap: forward Tab enters the controls, reverse Tab enters at the end.
+      if (active === dialog) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+        return;
+      }
+
       if (event.shiftKey && active === first) {
         event.preventDefault();
         last.focus();
@@ -89,7 +105,7 @@ export default function ExpandedPanel({ panelId, symbol, interval, onClose }: Ex
       >
         <header className="panel-overlay-header">
           <span className="panel-symbol">{title}</span>
-          <span className="panel-overlay-status">{statusLabel(market.status)}</span>
+          <span className="panel-overlay-status">{label}</span>
           <button className="panel-overlay-close" type="button" onClick={onClose}>
             Close
           </button>
@@ -101,6 +117,29 @@ export default function ExpandedPanel({ panelId, symbol, interval, onClose }: Ex
             viewKey={`${panelId}:${symbol}:${interval}:expanded`}
             onExpand={onClose}
           />
+          {showBlockingMessage && (
+            <div
+              className={`panel-message status-${market.status}`}
+              role={market.status === "error" ? "alert" : "status"}
+              aria-live="polite"
+            >
+              <strong>{label}</strong>
+              <span>{message}</span>
+              {market.status === "error" && (
+                <button className="retry-button" type="button" onClick={market.retry}>
+                  Retry
+                </button>
+              )}
+            </div>
+          )}
+          {showErrorBanner && (
+            <div className="panel-banner status-error" role="alert" aria-live="polite">
+              <span>{message}</span>
+              <button className="retry-button" type="button" onClick={market.retry}>
+                Retry
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>
