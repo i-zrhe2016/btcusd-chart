@@ -36,7 +36,7 @@ pick_port() {
   return 1
 }
 
-PORT="${DEPLOY_INTEGRATION_PORT:-$(pick_port)}" || fail "could not find a free port"
+PORT=""
 
 REVISION_TAG="$(git -C "$ROOT_DIR" rev-parse --short=12 HEAD)"
 REVISION_IMAGE_ID=""
@@ -109,6 +109,24 @@ run_entrypoint() {
   env PATH="$FAKE_BIN:$PATH" bash "$SCRIPT" --config "$config" "$@"
 }
 
+deploy_revision() {
+  local attempt
+  for attempt in 1 2; do
+    if [[ -n "${DEPLOY_INTEGRATION_PORT:-}" ]]; then
+      PORT="$DEPLOY_INTEGRATION_PORT"
+    else
+      PORT="$(pick_port)" || fail "could not find a free host port"
+    fi
+    write_contract "$TMP_DIR/deploy.env" 'BTCUSD Chart'
+    if run_entrypoint "$TMP_DIR/deploy.env" >"$TMP_DIR/deploy.log" 2>&1; then
+      return 0
+    fi
+    printf 'deploy attempt %s did not succeed; retrying on another host port\n' "$attempt"
+  done
+  cat "$TMP_DIR/deploy.log" >&2
+  fail "the checked-out revision did not deploy"
+}
+
 printf 'building the known-good rollback image\n'
 ROLLBACK_SRC="$TMP_DIR/rollback-src"
 mkdir -p "$ROLLBACK_SRC"
@@ -119,8 +137,7 @@ docker build -q -f "$ROLLBACK_SRC/Dockerfile" -t "$IMAGE_NAME:rollback-tag" "$RO
 ROLLBACK_DIGEST="$(docker image inspect "$IMAGE_NAME:rollback-tag" --format '{{.Id}}')"
 [[ "$ROLLBACK_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || fail "rollback image ID is unavailable"
 
-write_contract "$TMP_DIR/deploy.env" 'BTCUSD Chart'
-run_entrypoint "$TMP_DIR/deploy.env" >/dev/null
+deploy_revision
 REVISION_IMAGE_ID="$(docker image inspect "$IMAGE_NAME:$REVISION_TAG" --format '{{.Id}}')"
 [[ "$(docker inspect "$(running_container)" --format '{{.Config.Image}}')" == "$IMAGE_NAME:$REVISION_TAG" ]] || fail "deploy did not run the built revision image"
 curl --fail --silent --max-time 10 "http://127.0.0.1:$PORT/health" | grep -q '^ok$' || fail "the deployed service did not answer the health check"

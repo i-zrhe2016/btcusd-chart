@@ -283,6 +283,13 @@ cp "$TMP_DIR/valid.env" "$TMP_DIR/mutable.env"
 sed -i 's/^SOURCE_REVISION=.*/SOURCE_REVISION=main/' "$TMP_DIR/mutable.env"
 assert_failure env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" bash "$SCRIPT" --config "$TMP_DIR/mutable.env" --dry-run
 
+cp "$TMP_DIR/valid.env" "$TMP_DIR/colliding-rollback.env"
+sed -i -e 's/^ROLLBACK_TAG=.*/ROLLBACK_TAG=test-commit/' -e "s#^ROLLBACK_IMAGE_DIGEST=.*#ROLLBACK_IMAGE_DIGEST=$TEST_REVISION_DIGEST#" "$TMP_DIR/colliding-rollback.env"
+if env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" bash "$SCRIPT" --config "$TMP_DIR/colliding-rollback.env" --dry-run >/dev/null 2>"$TMP_DIR/collision.stderr"; then
+  fail "a rollback tag equal to the revision tag unexpectedly succeeded"
+fi
+grep -F 'must differ from the derived revision tag' "$TMP_DIR/collision.stderr" >/dev/null || fail "the revision tag collision was not reported"
+
 ln -s "$STATE_DIR/lock-target" "$STATE_DIR/lock-link"
 cp "$TMP_DIR/valid.env" "$TMP_DIR/lock-symlink.env"
 sed -i "s#^DEPLOY_LOCK_PATH=.*#DEPLOY_LOCK_PATH=$STATE_DIR/lock-link#" "$TMP_DIR/lock-symlink.env"

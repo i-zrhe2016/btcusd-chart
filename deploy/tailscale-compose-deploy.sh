@@ -439,6 +439,7 @@ main() {
   discover_revision
 
   ROLLBACK_IMAGE_REFERENCE="$IMAGE_NAME:$ROLLBACK_TAG"
+  [[ "$ROLLBACK_TAG" != "$REVISION_TAG" ]] || die "ROLLBACK_TAG must differ from the derived revision tag"
   verify_image_id "$IMAGE_NAME:$ROLLBACK_TAG" "$ROLLBACK_IMAGE_DIGEST" || die "rollback tag does not match ROLLBACK_IMAGE_DIGEST"
   compose "$IMAGE_NAME:$REVISION_TAG" "$REVISION_TAG" config >/dev/null || die "Compose configuration is invalid"
   verify_compose_image_name
