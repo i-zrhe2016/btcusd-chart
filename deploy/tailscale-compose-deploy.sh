@@ -218,6 +218,9 @@ discover_target() {
 
 excluded_from_build_context() {
   local path="$1" pattern negated excluded=0
+  local path_slashes pattern_slashes stripped
+  stripped="${path//\//}"
+  path_slashes=$(( ${#path} - ${#stripped} ))
   while IFS= read -r pattern || [[ -n "$pattern" ]]; do
     if [[ -z "$pattern" || "$pattern" == \#* ]]; then
       continue
@@ -227,6 +230,13 @@ excluded_from_build_context() {
       negated=1
       pattern="${pattern#!}"
       if [[ -z "$pattern" ]]; then
+        continue
+      fi
+    fi
+    if [[ "$pattern" != *'**'* ]]; then
+      stripped="${pattern//\//}"
+      pattern_slashes=$(( ${#pattern} - ${#stripped} ))
+      if (( pattern_slashes != path_slashes )); then
         continue
       fi
     fi

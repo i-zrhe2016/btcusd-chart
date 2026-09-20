@@ -79,9 +79,11 @@ fails closed: patterns are evaluated in file order and the last matching rule
 decides, so an ignored path that a later `!` rule re-includes also stops the run.
 Docker applies a slash-less pattern to the build-context root only, so a nested
 ignored directory such as `packages/app/node_modules` is not covered by the
-`node_modules` pattern and stops the run. Exclude such a path explicitly, for
-example with a `**/node_modules` pattern in `.dockerignore`, when a checkout
-contains one.
+`node_modules` pattern and stops the run. The check trusts a pattern only when
+its separator count matches the reported path, so a wildcard never silently
+covers a deeper path; patterns containing `**` keep their recursive meaning.
+Exclude a nested path explicitly, for example by adding a `**/node_modules`
+pattern next to the existing `node_modules` entry, when a checkout contains one.
 `DEPLOY_LOCK_PATH` names a trusted directory used for directory-level `flock`;
 it must be owned by the current user and must not be group/world-writable.
 Create the default directory before first use with

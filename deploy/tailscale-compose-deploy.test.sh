@@ -107,8 +107,9 @@ case "$*" in
     case "${FAKE_IGNORED_MODE:-clean}" in
       blocked) printf '!! notes.txt\n' ;;
       nested) printf '!! packages/app/node_modules/\n' ;;
+      wildcard-crossing) printf '!! logs/app.log\n' ;;
       re-included) printf '!! .env.example\n' ;;
-      allowed) printf '!! node_modules/\n!! dist/\n!! coverage/\n!! .playwright-cli/\n!! tsconfig.app.tsbuildinfo\n!! .env.local\n!! .DS_Store\n!! .npmrc\n!! build.log\n' ;;
+      allowed) printf '!! node_modules/\n!! dist/\n!! coverage/\n!! .playwright-cli/\n!! tsconfig.app.tsbuildinfo\n!! .env\n!! .env.local\n!! .DS_Store\n!! .npmrc\n!! build.log\n!! .codex/\n!! .agents/\n!! .git/config\n' ;;
     esac
     exit 0
     ;;
@@ -336,6 +337,7 @@ assert_failure env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" FAKE_DIRTY
 
 assert_failure env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" FAKE_IGNORED_MODE=blocked bash "$SCRIPT" --config "$TMP_DIR/valid.env" --dry-run
 assert_failure env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" FAKE_IGNORED_MODE=nested bash "$SCRIPT" --config "$TMP_DIR/valid.env" --dry-run
+assert_failure env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" FAKE_IGNORED_MODE=wildcard-crossing bash "$SCRIPT" --config "$TMP_DIR/valid.env" --dry-run
 assert_failure env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" FAKE_IGNORED_MODE=re-included bash "$SCRIPT" --config "$TMP_DIR/valid.env" --dry-run
 env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" FAKE_IGNORED_MODE=allowed bash "$SCRIPT" --config "$TMP_DIR/valid.env" --dry-run >/dev/null
 
