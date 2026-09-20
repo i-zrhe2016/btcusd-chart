@@ -6,6 +6,7 @@ SCRIPT="$ROOT_DIR/deploy/tailscale-compose-deploy.sh"
 COMPOSE_FILE="$ROOT_DIR/docker-compose.yml"
 COMPOSE_PROJECT="btcusd-chart-itest"
 IMAGE_NAME="btcusd-chart-itest"
+ROLLBACK_MARKER="itest-rollback-marker"
 
 if [[ "${DEPLOY_INTEGRATION:-0}" != 1 ]]; then
   printf 'skipping the real Compose integration test: set DEPLOY_INTEGRATION=1 to run it\n'
@@ -100,8 +101,12 @@ run_entrypoint() {
 }
 
 printf 'building the known-good rollback image\n'
-IMAGE_NAME="$IMAGE_NAME" IMAGE_TAG=rollback-tag COMPOSE_PROJECT_NAME="$COMPOSE_PROJECT" \
-  docker compose -f "$COMPOSE_FILE" build --pull=false web >/dev/null
+ROLLBACK_SRC="$TMP_DIR/rollback-src"
+mkdir -p "$ROLLBACK_SRC"
+git -C "$ROOT_DIR" archive HEAD | tar -x -C "$ROLLBACK_SRC"
+sed -i "s#<title>BTCUSD Chart</title>#<title>BTCUSD Chart</title><meta name=\"itest-marker\" content=\"$ROLLBACK_MARKER\">#" "$ROLLBACK_SRC/index.html"
+grep -q "$ROLLBACK_MARKER" "$ROLLBACK_SRC/index.html" || fail "could not build a distinct known-good image"
+docker build -q -f "$ROLLBACK_SRC/Dockerfile" -t "$IMAGE_NAME:rollback-tag" "$ROLLBACK_SRC" >/dev/null
 ROLLBACK_DIGEST="$(docker image inspect "$IMAGE_NAME:rollback-tag" --format '{{.Id}}')"
 [[ "$ROLLBACK_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || fail "rollback image ID is unavailable"
 
@@ -114,10 +119,11 @@ curl --fail --silent --max-time 10 "http://127.0.0.1:$PORT/workspace" | grep -q 
 run_entrypoint "$TMP_DIR/deploy.env" --rollback >/dev/null
 [[ "$(container_image_id)" == "$ROLLBACK_DIGEST" ]] || fail "explicit rollback did not restore the known-good image"
 
-write_contract "$TMP_DIR/mismatch.env" 'absent-marker-token'
-if run_entrypoint "$TMP_DIR/mismatch.env" >/dev/null 2>&1; then
+write_contract "$TMP_DIR/mismatch.env" "$ROLLBACK_MARKER"
+if run_entrypoint "$TMP_DIR/mismatch.env" >/dev/null 2>"$TMP_DIR/mismatch.stderr"; then
   fail "a deployment whose smoke marker never appears unexpectedly succeeded"
 fi
 [[ "$(container_image_id)" == "$ROLLBACK_DIGEST" ]] || fail "failed post-deploy verification did not restore the known-good image"
+grep -F 'rollback verified' "$TMP_DIR/mismatch.stderr" >/dev/null || fail "the failed deployment did not verify its rollback"
 
 printf 'tailscale deployment integration test passed\n'

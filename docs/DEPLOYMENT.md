@@ -79,6 +79,13 @@ it must be owned by the current user and must not be group/world-writable.
 Create the default directory before first use with
 `install -d -m 755 /run/btcusd-chart`.
 
+The entrypoint runs as the owner of the contract directory and of
+`DEPLOY_LOCK_PATH`, and it refuses a contract or lock directory owned by another
+user. The documented `/etc/btcusd-chart` and `/run/btcusd-chart` locations are
+root-owned when they are created by root, so run the entrypoint as root through
+the approved management path, or point both settings at directories owned by
+the deployment account.
+
 Required values:
 
 - `TARGET_HOSTNAME`, `EXPECTED_NODE_ID`, and `EXPECTED_TAILSCALE_IP` for the
@@ -137,9 +144,10 @@ check attempts one rollback to the separately maintained
 returning failure. It does not infer or retag whatever image happened to be
 running before the update. The entrypoint acquires its local directory lock
 before it validates the target identity and the checked-out revision, and holds
-it across build, update, verification, and rollback, so two operator
-invocations cannot interleave and the build context cannot change between
-validation and build.
+it across build, update, verification, and rollback, so two concurrent
+entrypoint invocations cannot interleave their validation and mutation. The
+lock serializes this entrypoint only; keep the target checkout free of
+concurrent writers because the build context is read after validation.
 
 Run the documented rollback explicitly when required. Rollback still requires
 the external contract, the approved target identity, the required command-line
@@ -170,10 +178,11 @@ bash deploy/tailscale-compose-deploy.test.sh
 ```
 
 The opt-in integration check exercises the real Docker Compose lifecycle on the
-local host: it builds a known-good image, deploys the checked-out revision,
-verifies the health and smoke responses, rolls back, and confirms that a
-deployment whose smoke marker never appears restores the known-good image. It
-uses a disposable Compose project, image names, and port, and it removes them
+local host: it builds a distinct known-good image, deploys the checked-out
+revision, verifies the health and smoke responses, performs a verified
+rollback, and confirms that a revision whose smoke marker only the known-good
+image serves fails and is rolled back to that verified image. It uses a
+disposable Compose project, image names, and port, and it removes them
 afterwards. It needs a running Docker daemon, a clean checkout, and explicit
 opt-in:
 
