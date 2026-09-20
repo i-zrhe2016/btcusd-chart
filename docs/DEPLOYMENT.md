@@ -75,8 +75,10 @@ already keeps them out of the Docker build context, such as `node_modules/`,
 `dist/`, `coverage/`, `.playwright-cli/`, build metadata, and local `.env`
 files; any other ignored path stops the run before the first mutation.
 The check applies the patterns from `.dockerignore` to the path Git reports and
-fails closed. A pattern matches that reported path only, so a nested ignored
-directory such as `packages/app/node_modules` is not covered by the
+fails closed: patterns are evaluated in file order and the last matching rule
+decides, so an ignored path that a later `!` rule re-includes also stops the run.
+Docker applies a slash-less pattern to the build-context root only, so a nested
+ignored directory such as `packages/app/node_modules` is not covered by the
 `node_modules` pattern and stops the run. Exclude such a path explicitly, for
 example with a `**/node_modules` pattern in `.dockerignore`, when a checkout
 contains one.
@@ -203,7 +205,9 @@ DEPLOY_INTEGRATION=1 bash deploy/tailscale-compose-deploy.integration.sh
 Set `DEPLOY_INTEGRATION_PORT` to pin the host port; otherwise the script picks a
 free one and retries once on another port if the first attempt cannot bind it.
 The unit suite mocks Docker, so this integration lane is what proves that the
-real Compose and Engine accept the immutable image ID the entrypoint starts.
+real Compose and Engine accept the immutable image ID the entrypoint starts:
+Compose v2 resolves a locally present image ID used as the `image:` value
+without pulling it.
 
 The local rollback path is to stop the Compose project and rebuild from the
 last known-good Git revision:
