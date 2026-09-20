@@ -358,6 +358,7 @@ run_deployment() {
 
   log "building $IMAGE_NAME:$REVISION_TAG"
   compose "$IMAGE_NAME:$REVISION_TAG" "$REVISION_TAG" build --pull=false "$SERVICE_NAME"
+  discover_revision
   REVISION_IMAGE_DIGEST="$(image_id "$IMAGE_NAME:$REVISION_TAG")" || die "built image ID is unavailable"
   DEPLOY_STARTED=1
   log "starting service $SERVICE_NAME"

@@ -115,6 +115,7 @@ case "$*" in
     ;;
   *'status --porcelain'*)
     [[ "${FAKE_DIRTY:-0}" == 1 ]] && printf ' M file\n'
+    [[ "${FAKE_LATE_DIRTY:-0}" == 1 && -f "$FAKE_STATE_DIR/built" ]] && printf ' M file\n'
     exit 0
     ;;
   *'rev-parse --show-toplevel'*) printf '%s\n' "$PWD" ;;
@@ -190,7 +191,7 @@ case " $* " in
     printf 'config %s\n' "$*" >> "$FAKE_STATE_DIR/docker.log"
     exit 0
     ;;
-  *' build '*) printf 'build %s\n' "$*" >> "$FAKE_STATE_DIR/docker.log"; exit 0 ;;
+  *' build '*) : > "$FAKE_STATE_DIR/built"; printf 'build %s\n' "$*" >> "$FAKE_STATE_DIR/docker.log"; exit 0 ;;
   *' up '*)
     case "$IMAGE_REFERENCE" in
       "$FAKE_REVISION_DIGEST"|"$FAKE_ROLLBACK_DIGEST") ;;
@@ -396,6 +397,13 @@ env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" bash "$SCRIPT" --config "
 [[ "$(cat "$STATE_DIR/running-ref")" == "$TEST_REVISION_DIGEST" ]] || fail "successful deploy did not start the revision image"
 grep -F '192.0.2.2:8081/health' "$STATE_DIR/curl.log" >/dev/null || fail "health path was not checked"
 grep -F '192.0.2.2:8081/workspace' "$STATE_DIR/curl.log" >/dev/null || fail "smoke path was not checked"
+
+printf '%s\n' "$TEST_ROLLBACK_DIGEST" > "$STATE_DIR/running-ref"
+rm -f "$STATE_DIR/built"
+if env PATH="$FAKE_BIN:$PATH" FAKE_STATE_DIR="$STATE_DIR" FAKE_LATE_DIRTY=1 bash "$SCRIPT" --config "$TMP_DIR/valid.env" >/dev/null 2>"$TMP_DIR/late-dirty.stderr"; then
+  fail "a checkout that changed during the build unexpectedly succeeded"
+fi
+[[ "$(cat "$STATE_DIR/running-ref")" == "$TEST_ROLLBACK_DIGEST" ]] || fail "a checkout that changed during the build still touched the service"
 
 cp "$TMP_DIR/valid.env" "$TMP_DIR/custom-marker.env"
 printf 'HEALTH_MARKER=ready\nSMOKE_MARKER=Chart Ready\n' >> "$TMP_DIR/custom-marker.env"
