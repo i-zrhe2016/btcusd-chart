@@ -126,4 +126,26 @@ describe("App", () => {
 
     expect(screen.queryByRole("dialog")).toBeNull();
   });
+
+  it("removes the grid from assistive technology while the overlay is open", () => {
+    render(<App />);
+
+    const grid = screen.getByRole("main", { name: "Four-chart terminal" });
+    expect(grid.hasAttribute("inert")).toBe(false);
+
+    fireEvent.doubleClick(screen.getAllByTestId("chart-canvas")[2]);
+    expect(grid.hasAttribute("inert")).toBe(true);
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(grid.hasAttribute("inert")).toBe(false);
+  });
+
+  it("returns focus to the originating panel after the overlay closes", () => {
+    render(<App />);
+
+    fireEvent.doubleClick(screen.getAllByTestId("chart-canvas")[2]);
+    fireEvent.keyDown(window, { key: "Escape" });
+
+    expect(document.activeElement).toBe(screen.getByLabelText("BTCUSD 4h panel"));
+  });
 });

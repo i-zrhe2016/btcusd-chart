@@ -10,29 +10,54 @@ export default function App() {
   const [panels, setPanels] = useState<ChartPanelConfig[]>(createDefaultPanels);
   const [expandedPanelId, setExpandedPanelId] = useState<string | null>(null);
   const panelRefs = useRef(new Map<string, HTMLElement>());
+  const gridRef = useRef<HTMLElement>(null);
+  const restoreFocusToRef = useRef<string | null>(null);
   const expandedPanel = panels.find((panel) => panel.id === expandedPanelId) ?? null;
 
   useEffect(() => {
     document.title = PAGE_TITLE;
   }, []);
 
+  useEffect(() => {
+    const grid = gridRef.current;
+
+    if (!grid) {
+      return;
+    }
+
+    // The overlay is modal, so the grid behind it must leave the accessibility
+    // and focus order for as long as the overlay is open.
+    if (expandedPanel) {
+      grid.setAttribute("inert", "");
+
+      return () => grid.removeAttribute("inert");
+    }
+
+    grid.removeAttribute("inert");
+
+    // Focus can only return to the grid once it is focusable again; doing it
+    // while `inert` is still set drops focus to the document body instead.
+    const panelId = restoreFocusToRef.current;
+
+    restoreFocusToRef.current = null;
+
+    if (panelId) {
+      panelRefs.current.get(panelId)?.focus();
+    }
+  }, [expandedPanel]);
+
   const changeInterval = (panelId: string, interval: Interval) => {
     setPanels((current) => setPanelInterval(current, panelId, interval));
   };
 
   const closeExpandedPanel = () => {
-    const panelId = expandedPanelId;
-
+    restoreFocusToRef.current = expandedPanelId;
     setExpandedPanelId(null);
-
-    if (panelId) {
-      panelRefs.current.get(panelId)?.focus();
-    }
   };
 
   return (
     <div className="terminal">
-      <main className="terminal-grid" aria-label="Four-chart terminal">
+      <main className="terminal-grid" aria-label="Four-chart terminal" ref={gridRef}>
         {panels.map((panel) => (
           <ChartPanel
             key={panel.id}
