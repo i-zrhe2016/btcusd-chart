@@ -2,7 +2,6 @@ import { useEffect, useRef } from "react";
 import {
   CandlestickSeries,
   ColorType,
-  HistogramSeries,
   createChart,
   type UTCTimestamp,
 } from "lightweight-charts";
@@ -12,6 +11,7 @@ interface PriceChartProps {
   candles: Candle[];
   symbol: string;
   viewKey: string;
+  onExpand?: () => void;
 }
 
 type CandlePoint = {
@@ -20,12 +20,6 @@ type CandlePoint = {
   high: number;
   low: number;
   close: number;
-};
-
-type VolumePoint = {
-  time: UTCTimestamp;
-  value: number;
-  color: string;
 };
 
 type ChartViewport = {
@@ -37,18 +31,18 @@ type CandleSeries = {
   update: (data: CandlePoint) => void;
 };
 
-type VolumeSeries = {
-  setData: (data: VolumePoint[]) => void;
-  update: (data: VolumePoint) => void;
-};
-
+/**
+ * The terminal is black and white only. A rising candle is drawn as a hollow
+ * body, which Lightweight Charts renders when the body color matches the
+ * surface and the border carries the ink; a falling candle is a filled body.
+ */
 const chartColors = {
-  background: "#101a20",
-  text: "#91a4aa",
-  grid: "#1e2d33",
-  border: "#2b3c42",
-  up: "#57d6b2",
-  down: "#ff8b6f",
+  background: "#000000",
+  text: "#b4b4b4",
+  border: "#2a2a2a",
+  crosshair: "#8a8a8a",
+  up: "#ffffff",
+  down: "#ffffff",
 };
 
 function toUtcTimestamp(time: number, previousTime: number): UTCTimestamp {
@@ -65,51 +59,32 @@ function toUtcTimestamp(time: number, previousTime: number): UTCTimestamp {
   return timestamp;
 }
 
-function toChartData(candles: Candle[]) {
+function toChartData(candles: Candle[]): CandlePoint[] {
   let previousTime = 0;
-  const candleData: CandlePoint[] = [];
-  const volumeData: VolumePoint[] = [];
 
-  candles.forEach((candle) => {
+  return candles.map((candle) => {
     const time = toUtcTimestamp(candle.time, previousTime);
     previousTime = time;
-    candleData.push({
+
+    return {
       time,
       open: candle.open,
       high: candle.high,
       low: candle.low,
       close: candle.close,
-    });
-    volumeData.push({
-      time,
-      value: candle.volume,
-      color: candle.close >= candle.open ? "#2d8875" : "#9e4e48",
-    });
+    };
   });
-
-  return { candleData, volumeData };
 }
 
-function pointsMatch(left: CandlePoint | VolumePoint, right: CandlePoint | VolumePoint) {
-  if (left.time !== right.time) {
-    return false;
-  }
-
-  if ("value" in left && "value" in right) {
-    return left.value === right.value && left.color === right.color;
-  }
-
-  if ("value" in left || "value" in right) {
-    return false;
-  }
-
-  return left.open === right.open
+function pointsMatch(left: CandlePoint, right: CandlePoint) {
+  return left.time === right.time
+    && left.open === right.open
     && left.high === right.high
     && left.low === right.low
     && left.close === right.close;
 }
 
-function supportsIncrementalUpdate<T extends CandlePoint | VolumePoint>(previous: T[], next: T[]) {
+function supportsIncrementalUpdate(previous: CandlePoint[], next: CandlePoint[]) {
   if (previous.length === 0 || next.length === 0 || next.length < previous.length || next.length > previous.length + 1) {
     return false;
   }
@@ -129,17 +104,19 @@ function supportsIncrementalUpdate<T extends CandlePoint | VolumePoint>(previous
   return next[next.length - 1].time > previous[previous.length - 1].time;
 }
 
-export default function PriceChart({ candles, symbol, viewKey }: PriceChartProps) {
+export default function PriceChart({ candles, symbol, viewKey, onExpand }: PriceChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<ChartViewport | null>(null);
   const candleSeriesRef = useRef<CandleSeries | null>(null);
-  const volumeSeriesRef = useRef<VolumeSeries | null>(null);
   const lastFitKeyRef = useRef<string | null>(null);
-  const previousDataRef = useRef<{ viewKey: string; candleData: CandlePoint[]; volumeData: VolumePoint[] } | null>(null);
+  const previousDataRef = useRef<{ viewKey: string; candleData: CandlePoint[] } | null>(null);
+  const onExpandRef = useRef(onExpand);
   const latestCandle = candles[candles.length - 1];
   const dataSignature = candles
-    .map((candle) => [candle.time, candle.open, candle.high, candle.low, candle.close, candle.volume].join(":"))
+    .map((candle) => [candle.time, candle.open, candle.high, candle.low, candle.close].join(":"))
     .join("|");
+
+  onExpandRef.current = onExpand;
 
   useEffect(() => {
     const container = containerRef.current;
@@ -157,12 +134,12 @@ export default function PriceChart({ candles, symbol, viewKey }: PriceChartProps
         attributionLogo: true,
       },
       grid: {
-        vertLines: { color: chartColors.grid },
-        horzLines: { color: chartColors.grid },
+        vertLines: { visible: false, color: chartColors.background },
+        horzLines: { visible: false, color: chartColors.background },
       },
       rightPriceScale: {
         borderColor: chartColors.border,
-        scaleMargins: { top: 0.08, bottom: 0.24 },
+        scaleMargins: { top: 0.08, bottom: 0.08 },
       },
       timeScale: {
         borderColor: chartColors.border,
@@ -170,34 +147,31 @@ export default function PriceChart({ candles, symbol, viewKey }: PriceChartProps
         secondsVisible: false,
       },
       crosshair: {
-        vertLine: { color: "#c8a96b", width: 1, style: 2 },
-        horzLine: { color: "#c8a96b", width: 1, style: 2 },
+        vertLine: { color: chartColors.crosshair, width: 1, style: 2 },
+        horzLine: { color: chartColors.crosshair, width: 1, style: 2 },
       },
     });
 
     const candleSeries = chart.addSeries(CandlestickSeries, {
-      upColor: chartColors.up,
+      upColor: chartColors.background,
       downColor: chartColors.down,
-      borderVisible: false,
+      borderVisible: true,
+      borderUpColor: chartColors.up,
+      borderDownColor: chartColors.down,
       wickUpColor: chartColors.up,
       wickDownColor: chartColors.down,
       priceLineVisible: true,
       lastValueVisible: true,
     });
 
-    const volumeSeries = chart.addSeries(HistogramSeries, {
-      priceFormat: { type: "volume" },
-      priceScaleId: "volume",
-      base: 0,
-    });
-
-    chart.priceScale("volume").applyOptions({
-      scaleMargins: { top: 0.82, bottom: 0 },
-    });
-
     chartRef.current = chart;
     candleSeriesRef.current = candleSeries as CandleSeries;
-    volumeSeriesRef.current = volumeSeries as VolumeSeries;
+
+    const handleDoubleClick = () => {
+      onExpandRef.current?.();
+    };
+
+    chart.subscribeDblClick(handleDoubleClick);
 
     const resizeChart = () => {
       chart.applyOptions({
@@ -218,10 +192,10 @@ export default function PriceChart({ candles, symbol, viewKey }: PriceChartProps
     return () => {
       resizeObserver?.disconnect();
       window.removeEventListener("resize", resizeChart);
+      chart.unsubscribeDblClick(handleDoubleClick);
       chart.remove();
       chartRef.current = null;
       candleSeriesRef.current = null;
-      volumeSeriesRef.current = null;
       lastFitKeyRef.current = null;
       previousDataRef.current = null;
     };
@@ -229,27 +203,23 @@ export default function PriceChart({ candles, symbol, viewKey }: PriceChartProps
 
   useEffect(() => {
     const candleSeries = candleSeriesRef.current;
-    const volumeSeries = volumeSeriesRef.current;
 
-    if (!candleSeries || !volumeSeries) {
+    if (!candleSeries) {
       return;
     }
 
-    const { candleData, volumeData } = toChartData(candles);
+    const candleData = toChartData(candles);
     const previousData = previousDataRef.current;
     const canUpdateIncrementally = previousData?.viewKey === viewKey
-      && supportsIncrementalUpdate(previousData.candleData, candleData)
-      && supportsIncrementalUpdate(previousData.volumeData, volumeData);
+      && supportsIncrementalUpdate(previousData.candleData, candleData);
 
     if (canUpdateIncrementally) {
       candleSeries.update(candleData[candleData.length - 1]);
-      volumeSeries.update(volumeData[volumeData.length - 1]);
     } else {
       candleSeries.setData(candleData);
-      volumeSeries.setData(volumeData);
     }
 
-    previousDataRef.current = { viewKey, candleData, volumeData };
+    previousDataRef.current = { viewKey, candleData };
 
     if (!canUpdateIncrementally && lastFitKeyRef.current !== viewKey) {
       chartRef.current?.timeScale().fitContent();

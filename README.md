@@ -1,24 +1,29 @@
 # BTCUSD Chart
 
-Browser-only TradingView-like BTCUSD charting workspace.
+Browser-only BTCUSD K-line terminal: four chart panels in a 2x2 desktop grid at
+15m / 1h / 4h / 1D on a pure-black workspace, collapsing to a single scrollable
+column on narrow screens.
 
-The MVP uses Vite, React, TypeScript, Lightweight Charts 5.2, Zustand, and
-Binance public spot market data. A browser-side MarketDataHub shares history and
-WebSocket subscriptions for identical markets within one tab. The chart keeps
-loading, disconnected, stale, and error states visible and does not fall back to
-local fixture data after live mode is enabled.
+The terminal uses Vite, React, TypeScript, Lightweight Charts 5.2, and Binance
+public spot market data. A browser-side MarketDataHub shares history and
+WebSocket subscriptions for identical markets within one tab, so the four panels
+hold four independent subscriptions. Each panel keeps loading, stale,
+disconnected, and error states visible and does not fall back to local fixture
+data after live mode is enabled.
 
-The current market mapping includes `BTCUSD -> BTCUSDT`, `ETHUSD -> ETHUSDT`,
-`SOLUSD -> SOLUSDT`, and `BNBUSD -> BNBUSDT`. Public history uses Binance's
-market-data REST endpoint and realtime candles use the public kline stream.
+The chart surface has no accent colors: rising candles are hollow with a white
+border and wick, falling candles are filled white, and there are no grid lines.
+Text and axes use light gray, and the crosshair a mid gray. Double-click a panel
+to read its chart enlarged; click outside it or press Escape to close.
 
-The chart toolbar can open the active symbol and interval in an independent
-browser window. The child window restores its chart state from URL parameters;
-Electron and cross-window synchronization are not required for this web flow.
-See [docs/WEB_WORKSPACES.md](docs/WEB_WORKSPACES.md) for the current behavior.
-See [docs/Repo_Current_State.md](docs/Repo_Current_State.md) for the verified current state of the repository.
+`BTCUSD` is the terminal's only market and it maps to `BTCUSDT`. Public history
+uses Binance's market-data REST endpoint and realtime candles use the public
+kline stream. See [docs/Repo_Current_State.md](docs/Repo_Current_State.md) for
+the verified current state of the repository.
 
 ## Development
+
+Requires Node `^20.19.0 || >=22.12.0`.
 
 ```bash
 npm install
